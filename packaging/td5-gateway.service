@@ -1,0 +1,20 @@
+[Unit]
+Description=TD5 Gauge diagnostic gateway (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__TD5_USER__
+Group=__TD5_USER__
+EnvironmentFile=-/etc/td5-gauge.conf
+ExecStart=__TD5_HOME__/td5gauge/pi-start-gateway.sh
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=__TD5_HOME__/td5gauge __TD5_HOME__/.local/share/td5gauge
+
+[Install]
+WantedBy=multi-user.target

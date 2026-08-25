@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TD5 Gauge + CarPlay
+Comment=Start the full-screen TD5 and CarPlay interface
+Exec=__TD5_HOME__/td5gauge/livi-integrated-start.sh
+Terminal=false
+X-GNOME-Autostart-enabled=true
+OnlyShowIn=GNOME;LXQt;LXDE;XFCE;MATE;

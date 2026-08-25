@@ -10,9 +10,10 @@ if [ -z "${WAYLAND_DISPLAY:-}" ]; then
   WAYLAND_DISPLAY="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -printf '%T@ %f\n' | sort -n | awk 'NR == 1 { print $2 }')"
   export WAYLAND_DISPLAY
 fi
-readonly LIVI_DIR="${TD5_LIVI_DIR:-$HOME/livi-td5-src}"
+readonly PROJECT_DIR="${TD5_PROJECT_DIR:-$HOME/td5gauge}"
+readonly LIVI_DIR="${TD5_LIVI_DIR:-$PROJECT_DIR/third_party/LIVI}"
 export PATH="$HOME/.local/node-current/bin:$PATH"
-export APPIMAGE="$LIVI_DIR/livi-source-launcher.sh"
+export APPIMAGE="$PROJECT_DIR/livi-source-launcher.sh"
 export LIVI_EMBEDDED=1
 
 cd "$LIVI_DIR"

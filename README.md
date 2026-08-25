@@ -1,7 +1,8 @@
 # TD5 CarPlay Gauge
 
-A Raspberry Pi-based infotainment system with real-time TD5 engine monitoring
-and Apple CarPlay, designed for Land Rover Defender and Discovery.
+A Raspberry Pi-based infotainment system with real-time engine monitoring and
+Apple CarPlay for Land Rover Defender and Discovery 2 models powered by the
+2.5-litre, five-cylinder TD5 diesel engine.
 
 This is an independent hobby/diagnostic project. It is not affiliated with or
 endorsed by JLR, Land Rover, Apple, Google, Spotify, or other trademark owners.
@@ -55,6 +56,14 @@ The current installation uses:
 The touchscreen is detected as an ILITEK USB device and mapped to the HDMI output
 by the included Wayland configuration.
 
+### Display installation
+
+A complete guide for installing the display in the vehicle will be added later.
+It will cover physical mounting, bracket design, cable routing, dashboard fitment,
+and the final in-vehicle connections. Until that guide and the power solution have
+been completed and tested, the display should be treated as a bench-tested part of
+the project rather than a ready-to-install vehicle kit.
+
 ### Vehicle power solution
 
 The vehicle power solution has not yet been finalized. Work is ongoing on a safe
@@ -86,13 +95,73 @@ CPC200-CCPA dongle has not yet been connected or verified with this installation
 CarPlay support should therefore be considered untested until the adapter arrives
 and has been validated on the Raspberry Pi.
 
-## Getting started
+## Raspberry Pi installation
+
+Start with a fresh Raspberry Pi OS installation with the desktop, a network
+connection during installation, and a supported touchscreen. Use a dedicated Pi
+and SD card: this installer configures the desktop user to start the vehicle
+interface automatically.
+
+1. Flash Raspberry Pi OS (64-bit, desktop) using Raspberry Pi Imager. Create a
+   normal user and enable Wi-Fi or Ethernet for the initial installation.
+2. On the Pi, clone this repository and initialize the included LIVI source:
+
+   ```sh
+   git clone --recurse-submodules REPOSITORY_URL td5-carplay-gauge
+   cd td5-carplay-gauge
+   ```
+
+3. Run the installer as that normal desktop user. It asks for the administrator
+   password only to install packages and register the gateway service:
+
+   ```sh
+   ./scripts/install-pi.sh
+   ```
+
+4. If Node.js and `pnpm` are already installed, add `--build-livi` to build the
+   integrated Td5/LIVI interface in the same step. Otherwise follow LIVI's
+   documented Raspberry Pi build prerequisites, then run:
+
+   ```sh
+   ./scripts/install-pi.sh --build-livi
+   ```
+
+5. Restart the Pi. The gateway starts at boot and the full-screen dashboard is
+   registered as a desktop autostart application. Connect the K+DCAN cable,
+   turn the ignition to position II, and wait for the ECU state in the footer.
+
+The installer deliberately defaults to the local-only API and read-only ECU
+operations. It does not clear faults, change ECU configuration, or actuate ABS
+components. Verify the wiring and software after installation with:
+
+```sh
+~/td5gauge/scripts/td5-health-check.sh
+```
+
+### First-boot configuration
+
+`/etc/td5-gauge.conf` is created on the Pi. Normally it needs no changes: the
+startup script prefers the stable `/dev/serial/by-id/...` identity of the first
+USB serial adapter and only falls back to `/dev/ttyUSB0`. If several serial
+adapters are connected, set the exact path in that file, then restart the
+gateway:
+
+```sh
+sudo systemctl restart td5-gateway.service
+```
+
+For a production-quality kit, distribute a tested SD-card image containing the
+already-built LIVI bundle. That avoids compiling Node/Electron on the buyer's
+Pi and makes the above first boot genuinely flash-card, connect, and drive.
+
+## Manual source setup
 
 Clone the repository and enter the project directory:
 
 ```sh
 git clone REPOSITORY_URL td5-carplay-gauge
 cd td5-carplay-gauge
+git submodule update --init
 ```
 
 Create a Python virtual environment and install the TD5 gateway dependency:
@@ -106,19 +175,31 @@ python3 -m pip install -r requirements.txt
 Replace `REPOSITORY_URL` with the HTTPS or SSH clone URL shown on the repository's
 GitHub page. No fixed username or local installation path is required.
 
+Apply the TD5 interface changes to the pinned LIVI source:
+
+```sh
+./scripts/apply-livi-patch.sh
+```
+
+The automated installer above is the recommended setup for a Raspberry Pi. More
+detailed documentation for manual package installation, startup configuration,
+display setup, and physical vehicle installation will be added as the hardware
+setup is finalized.
+
 ## Runtime
 
-The deployed Raspberry Pi starts the TD5 gateway with:
+For a manual or temporary test, start the TD5 gateway with:
 
 ```sh
 python3 td5gauge.py --port /dev/ttyUSB0
 ```
 
 The gateway keeps retrying until both the USB adapter and TD5 ECU are available.
-It listens only on `127.0.0.1` by default. Use `--bind 0.0.0.0` only on an
-isolated, trusted network when an external browser display is required.
-The integrated LIVI application is launched by `livi-integrated-start.sh` as one
-full-width Wayland application.
+It listens only on `127.0.0.1` by default because the API is intended for the TD5
+page inside LIVI. Do not expose the diagnostic API to an untrusted network.
+The installed system starts the gateway through `td5-gateway.service` and launches
+the integrated LIVI interface through the desktop autostart entry installed by
+`scripts/install-pi.sh`.
 
 To try the dashboard without a connected vehicle or K+DCAN cable, start it with
 simulated TD5 data:
@@ -139,6 +220,8 @@ includes:
 * Developing the vehicle power solution, including ignition-state detection and a
   controlled shutdown sequence so the Raspberry Pi can shut down safely before
   power is removed
+* Publishing complete instructions for mounting and connecting the ultra-wide
+  display in the vehicle
 
 ECU write operations and ABS service procedures are safety-critical features.
 They will require validated protocol support, clear user confirmation, appropriate

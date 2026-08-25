@@ -1,0 +1,3 @@
+# Local Td5 Gauge configuration. Keep this file on the Pi; do not commit it.
+# Leave blank to automatically prefer /dev/serial/by-id, then /dev/ttyUSB0.
+TD5_SERIAL_PORT=
