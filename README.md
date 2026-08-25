@@ -44,9 +44,9 @@ commands.
 
 The current installation uses:
 
-* A Raspberry Pi running Raspberry Pi OS
-* A [52Pi/GeeekPi 11.26-inch capacitive touchscreen (1920 × 440)](https://52pi.com/collections/new-arrivals/products/52pi-11-26-inch-capacitive-touch-screen-1920x440-hdmi-display-screen-with-speakers-for-raspberry-pi-5-4b-3b-3b)
-  with an IPS panel, HDMI video input, and USB touch input
+* A Raspberry Pi 4 Model B running Raspberry Pi OS
+* An 11.26-inch touchscreen (1920 × 440) with an IPS panel, HDMI video input,
+  and USB touch input
 * A K+DCAN USB cable with an FTDI-compatible serial interface and K-line connected
   to OBD pin 7
 * A Carlinkit CPC200-CCPA USB adapter for wired or wireless Apple CarPlay. The
