@@ -1,0 +1,38 @@
+# Secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+android-app/local.properties
+android-app/.td5pi_deploy_key*
+*.pem
+*.key
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+
+# Android / Gradle
+.gradle/
+**/build/
+*.apk
+*.aab
+
+# Node / Electron
+third_party/LIVI/node_modules/
+third_party/LIVI/out/
+third_party/LIVI/release/
+third_party/LIVI/.pnpm-store/
+.pnpm-store/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local diagnostic evidence; never commit vehicle/session data.
+logs/
+profiles/
+*.csv

@@ -1,0 +1,3 @@
+[submodule "third_party/LIVI"]
+	path = third_party/LIVI
+	url = https://github.com/f-io/LIVI.git

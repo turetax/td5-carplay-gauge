@@ -1,0 +1,20 @@
+# Td5 Gauge + LIVI cockpit; no panel, launcher, desktop or window decorations.
+default_border none
+default_floating_border none
+focus_follows_mouse no
+mouse_warping none
+hide_edge_borders both
+# A touch display does not need a permanent mouse arrow. It disappears almost
+# immediately after pointer movement, while touch input remains unchanged.
+seat seat0 hide_cursor 100
+
+# The physical display selects 1920x440 as its preferred mode. Keeping the
+# mode implicit preserves a usable picture if the display is briefly unplugged.
+output HDMI-A-1 scale 1
+
+# Keep the touch overlay bound to the vehicle display.
+input type:touch map_to_output HDMI-A-1
+
+# One full-width vehicle UI: the built-in Td5 panel and the CarPlay projection
+# run inside LIVI's compositor rather than as two competing desktop windows.
+exec_always --no-startup-id $HOME/td5gauge/livi-integrated-start.sh
