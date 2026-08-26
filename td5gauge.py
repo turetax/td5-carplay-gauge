@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import threading
 import time
 from collections import deque
@@ -18,11 +19,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 try:
-    import serial
     from serial.tools import list_ports
 except ImportError:  # Helpful error when launched before installation.
-    serial = None
     list_ports = None
+
+from td5_signals import SIGNALS
+from td5_transport import SerialTransport
 
 
 BAUDRATE = 10_400
@@ -77,15 +79,19 @@ class Td5Protocol:
         "keep_alive": (bytes((0x02, 0x3E, 0x01)), 3, 30),
     }
 
-    def __init__(self, port: str):
-        if serial is None:
-            raise RuntimeError("pyserial saknas. Kör: python3 -m pip install -r requirements.txt")
+    def __init__(
+        self,
+        port: str,
+        fast_init_mode: str = "break-condition",
+        transport: SerialTransport | None = None,
+    ):
         # timeout is deliberately short: each Td5 transaction has a known reply length.
-        self.serial = serial.Serial(port, BAUDRATE, timeout=0.06, write_timeout=1)
+        self.transport = transport or SerialTransport(port, BAUDRATE)
+        self.fast_init_mode = fast_init_mode
         self.nnn = False
 
     def close(self) -> None:
-        self.serial.close()
+        self.transport.close()
 
     def fast_init(self) -> None:
         """Drive K-line low/high: 25 ms each, as required by Td5 fast init.
@@ -93,15 +99,7 @@ class Td5Protocol:
         This only works if the adapter's TX pin is physically connected to K-line.
         Some K+DCAN cables do not satisfy that requirement.
         """
-        self.serial.close()
-        # Some serial drivers configure custom baud rates on reopen. The break is used as
-        # the reliable way to drive a USB serial TX line low.
-        self.serial.open()
-        self.serial.break_condition = True
-        time.sleep(0.0255)
-        self.serial.break_condition = False
-        time.sleep(0.0255)
-        self.serial.reset_input_buffer()
+        self.transport.fast_init(self.fast_init_mode)
 
     @staticmethod
     def checksum(payload: bytes) -> int:
@@ -122,10 +120,9 @@ class Td5Protocol:
         if request_override is not None:
             request = request_override
         frame = request + bytes((self.checksum(request),))
-        self.serial.reset_input_buffer()
+        self.transport.reset_input()
         for byte in frame:
-            self.serial.write(bytes((byte,)))
-            self.serial.flush()
+            self.transport.write_byte(byte)
             time.sleep(0.003)  # Td5 requires inter-byte pacing.
         time.sleep(response_delay_ms / 1000)
 
@@ -134,7 +131,7 @@ class Td5Protocol:
         raw = bytearray()
         expected_total = len(frame) + response_length
         while time.monotonic() < deadline and len(raw) < expected_total:
-            received = self.serial.read(expected_total - len(raw))
+            received = self.transport.read(expected_total - len(raw))
             if received:
                 raw.extend(received)
             else:
@@ -156,16 +153,15 @@ class Td5Protocol:
         response is rejected rather than being partially decoded.
         """
         frame = request + bytes((self.checksum(request),))
-        self.serial.reset_input_buffer()
+        self.transport.reset_input()
         for byte in frame:
-            self.serial.write(bytes((byte,)))
-            self.serial.flush()
+            self.transport.write_byte(byte)
             time.sleep(0.003)
         time.sleep(response_delay_ms / 1000)
         raw = bytearray()
         deadline = time.monotonic() + 0.5
         while time.monotonic() < deadline:
-            received = self.serial.read(64)
+            received = self.transport.read(64)
             if received:
                 raw.extend(received)
             else:
@@ -263,10 +259,10 @@ class Td5Protocol:
 
 
 class Service:
-    def __init__(self, port: str | None, simulate: bool):
+    def __init__(self, port: str | None, simulate: bool, fast_init_mode: str = "break-condition"):
         self.data = GaugeData(status="Simulerar" if simulate else "Startar")
         self.lock = threading.Lock()
-        self.port, self.simulate = port, simulate
+        self.port, self.simulate, self.fast_init_mode = port, simulate, fast_init_mode
         self.started_at = time.time()
         self.history: deque[dict] = deque(maxlen=720)  # Twelve minutes at one sample/second.
         self.last_recorded_at = 0.0
@@ -291,6 +287,21 @@ class Service:
     @staticmethod
     def _number(value: object) -> float | None:
         return float(value) if isinstance(value, (float, int)) else None
+
+    @staticmethod
+    def _connection_error_text(exc: Exception) -> str:
+        """Translate common serial failures into a useful, non-technical UI text."""
+        detail = str(exc)
+        lower = detail.lower()
+        if isinstance(exc, FileNotFoundError) or "could not open port" in lower:
+            return "K+DCAN-adaptern hittades inte. Kontrollera USB-kabeln och försök igen."
+        if isinstance(exc, PermissionError) or "permission denied" in lower:
+            return "Pi:n saknar behörighet till K+DCAN-adaptern. Lägg användaren i gruppen dialout."
+        if "ogiltigt svar" in lower or "kontrollsumma fel" in lower:
+            return "ECU-svaret kunde inte tolkas. Kontrollera adapter, K-line på pin 7 och tändning."
+        if "inget komplett svar" in lower or "inget svar" in lower:
+            return "ECU:n svarar inte ännu. Kontrollera tändning i läge 2 och K-line-adaptern."
+        return detail
 
     def _record_sample(self) -> None:
         """Keep a compact in-memory history and a local CSV only for real ECU data."""
@@ -552,6 +563,7 @@ class Service:
         }
         result["dtc"] = dtc
         result["abs"] = self.abs_snapshot()
+        result["signals"] = SIGNALS
         result["profile"] = {
             "last_saved": self.last_profile_path or None,
             "retention_count": PROFILE_RETENTION_COUNT,
@@ -573,7 +585,7 @@ class Service:
             try:
                 with self.lock:
                     self.data.status, self.data.detail = "Ansluter", f"Öppnar {self.port}"
-                connection = Td5Protocol(self.port)
+                connection = Td5Protocol(self.port, self.fast_init_mode)
                 connection.connect()
                 with self.lock:
                     self.data.status, self.data.detail = "Ansluten", "Td5 ECU svarar"
@@ -597,7 +609,7 @@ class Service:
                         profile_saved = True
             except Exception as exc:
                 with self.lock:
-                    self.data.status, self.data.detail = "Frånkopplad", str(exc)
+                    self.data.status, self.data.detail = "Frånkopplad", self._connection_error_text(exc)
                 time.sleep(3)
             finally:
                 if connection:
@@ -703,6 +715,12 @@ def main() -> None:
     parser.add_argument("--list-ports", action="store_true", help="Lista seriella USB-portar och avsluta")
     parser.add_argument("--web-port", type=int, default=8080, help="Webbport (standard: 8080)")
     parser.add_argument("--bind", default="127.0.0.1", help="Lyssningsadress (standard: endast denna dator/Pi)")
+    parser.add_argument(
+        "--fast-init-mode",
+        choices=SerialTransport.FAST_INIT_MODES,
+        default=os.environ.get("TD5_FAST_INIT_MODE", "break-condition"),
+        help="K-line väckningspuls; ändra endast efter test med aktuell kabel",
+    )
     args = parser.parse_args()
     if args.list_ports:
         if list_ports is None:
@@ -713,7 +731,7 @@ def main() -> None:
     if not args.simulate and not args.port:
         parser.error("specify --port /dev/ttyUSB0 or use --simulate")
 
-    service = Service(args.port, args.simulate)
+    service = Service(args.port, args.simulate, args.fast_init_mode)
     threading.Thread(target=service.run, name="td5-poll", daemon=True).start()
     server = ThreadingHTTPServer((args.bind, args.web_port), handler_factory(service))
     print(f"TD5 API listening on http://{args.bind}:{args.web_port}")

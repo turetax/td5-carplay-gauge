@@ -47,3 +47,7 @@ class ServiceTests(unittest.TestCase):
 
         service._evaluate_alerts(sample(updated_at=1001.0, voltage_v=12.7, engine_on=True))
         self.assertEqual(service.active_alerts["Alternator"]["level"], "danger")
+
+    def test_missing_serial_adapter_has_a_human_readable_error(self):
+        message = Service._connection_error_text(FileNotFoundError("could not open port /dev/ttyUSB0"))
+        self.assertIn("K+DCAN-adaptern", message)

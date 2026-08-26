@@ -40,6 +40,17 @@ The gateway and dashboard are read-oriented. Fault-code requests only read store
 and active faults; they do not clear codes, change ECU settings, or perform actuator
 commands.
 
+### Diagnostic architecture
+
+The gateway is deliberately separated into a TD5 protocol layer and a small
+serial transport layer. `td5_transport.py` owns adapter timing and fast init;
+`td5gauge.py` owns the read-only TD5 request/decoder flow; and
+`td5_signals.py` is the machine-readable catalogue of confirmed display values.
+The default K-line wake-up method remains `break-condition`, which is the method
+tested with this project. A `send-break` alternative is available only as an
+explicit configuration choice for adapter-specific Linux testing; it is not a
+general recommendation and must be verified on the vehicle first.
+
 ## Hardware
 
 The current installation uses:

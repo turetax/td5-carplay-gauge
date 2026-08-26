@@ -78,6 +78,13 @@ sed -e "s|__TD5_USER__|$TD5_USER|g" -e "s|__TD5_HOME__|$TD5_HOME|g" \
 sudo systemctl daemon-reload
 sudo systemctl enable --now td5-gateway.service
 
+# Also install a user-session service. It is useful on a desktop Pi where the
+# graphical login owns the Wayland display, and does not require storing a
+# password or enabling remote root access.
+mkdir -p "$TD5_HOME/.config/systemd/user"
+install -m 0644 "$TARGET_DIR/packaging/td5-gateway.user.service" "$TD5_HOME/.config/systemd/user/td5-gateway.service"
+chown "$TD5_USER:$TD5_USER" "$TD5_HOME/.config/systemd/user/td5-gateway.service"
+
 mkdir -p "$TD5_HOME/.config/autostart"
 sed "s|__TD5_HOME__|$TD5_HOME|g" "$TARGET_DIR/packaging/td5-livi.desktop" > "$TD5_HOME/.config/autostart/td5-livi.desktop"
 chown "$TD5_USER:$TD5_USER" "$TD5_HOME/.config/autostart/td5-livi.desktop"

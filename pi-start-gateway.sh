@@ -31,4 +31,5 @@ PORT="$(find_serial_port)"
 PYTHON="$HOME/td5gauge/.venv/bin/python"
 [ -x "$PYTHON" ] || PYTHON=/usr/bin/python3
 
-exec "$PYTHON" "$HOME/td5gauge/td5gauge.py" --port "$PORT"
+exec "$PYTHON" "$HOME/td5gauge/td5gauge.py" --port "$PORT" \
+  --fast-init-mode "${TD5_FAST_INIT_MODE:-break-condition}"
