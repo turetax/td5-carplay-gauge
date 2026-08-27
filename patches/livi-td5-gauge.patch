@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..2103937 100644
+index 2304492..30285c3 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -336,7 +336,7 @@ index 2304492..2103937 100644
      </article>
    )
 
-@@ -142,50 +289,99 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +289,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -394,7 +394,9 @@ index 2304492..2103937 100644
 +          marginLeft: 90,
 +          display: 'grid',
 +          gridTemplateColumns: view === 'injectors' || view === 'injectorTrend' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
-+          gridTemplateRows: view === 'ecu' ? 'auto auto' : view === 'fuel' ? 'repeat(5,minmax(132px,1fr))' : 'repeat(2,minmax(0,1fr))',
++          // Fuel/pedal uses fewer, taller rows than a dense diagnostic table.
++          // This keeps the actual numbers readable on the 747×440 Td5 pane.
++          gridTemplateRows: view === 'ecu' ? 'auto auto' : view === 'fuel' ? 'repeat(5,minmax(190px,1fr))' : 'repeat(2,minmax(0,1fr))',
 +          gap: 10,
 +          minHeight: 0,
 +          overflowX: 'hidden',
