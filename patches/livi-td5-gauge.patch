@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..5ec1dcc 100644
+index 2304492..1af1161 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -108,7 +108,7 @@ index 2304492..5ec1dcc 100644
 +  driver_fuel_demand_mg?: number | null
 +  fuel_injected_mg?: number | null
 +  idle_fuel_demand_mg?: number | null
-   injector_balance?: number[] | null
++  injector_balance?: number[] | null
 +  session?: {
 +    started_at?: number
 +    duration_s?: number
@@ -121,8 +121,8 @@ index 2304492..5ec1dcc 100644
 +  feature_configuration?: { raw?: string; updated_at?: number; error?: string; pending?: boolean; read_only?: boolean }
 +  consumption?: { target_km?: number; distance_km?: number; l_per_100km?: number | null; provisional_l_per_100km?: number | null; current_lph?: number | null }
 +  abs?: { expected_controller?: string; state?: string; detail?: string; read_only?: boolean; engine_kline_ready?: boolean }
- }
-
++}
++
 +type Td5Alert = { name: string; value: number; unit: string; level: string; duration_s?: number }
 +type Td5Fault = { code?: string; description?: string; state?: string; counter?: number }
 +type Td5Sample = {
@@ -137,11 +137,11 @@ index 2304492..5ec1dcc 100644
 +  boost_kpa?: number | null
 +  maf_kg_h?: number | null
 +  wastegate_percent?: number | null
-+  injector_balance?: number[] | null
-+}
+   injector_balance?: number[] | null
+ }
 +type Td5History = { samples: Td5Sample[]; max_samples?: number }
 +type Td5View = 'home' | 'boost' | 'charging' | 'air' | 'fuel' | 'injectors' | 'trends' | 'history' | 'ecu' | 'ecuIdentity' | 'abs' | 'injectorId' | 'turboHealth' | 'injectorTrend'
-+
+
  const blank: Td5Live = { status: 'Söker ECU' }
 +const emptyHistory: Td5History = { samples: [] }
  const text = (value: number | null | undefined, decimals = 0) =>
@@ -210,7 +210,7 @@ index 2304492..5ec1dcc 100644
 
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +144,39 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +144,45 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
 
@@ -249,10 +249,16 @@ index 2304492..5ec1dcc 100644
 +    : data.consumption?.provisional_l_per_100km != null
 +      ? `SNITT HITTILLS · ${text(data.consumption.provisional_l_per_100km, 1)} l/100 km · ${text(data.consumption.distance_km, 1)} / ${text(data.consumption.target_km, 0)} km`
 +      : `SAMLAR FÖRBRUKNING · ${text(data.consumption?.distance_km, 0)} / ${text(data.consumption?.target_km, 0)} km`
++  const consumptionValue = data.consumption?.l_per_100km ?? data.consumption?.provisional_l_per_100km
++  const consumptionUnit = data.consumption?.l_per_100km != null
++    ? 'l/100 km · SENASTE 10 MIL'
++    : data.consumption?.provisional_l_per_100km != null
++      ? `l/100 km · ${text(data.consumption.distance_km, 1)} / ${text(data.consumption.target_km, 0)} km`
++      : `SAMLAR · ${text(data.consumption?.distance_km, 0)} / ${text(data.consumption?.target_km, 0)} km`
 
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +209,65 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +215,65 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
 
    if (!visible) return null
@@ -322,7 +328,7 @@ index 2304492..5ec1dcc 100644
      </article>
    )
 
-@@ -142,50 +282,93 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +288,99 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -345,19 +351,16 @@ index 2304492..5ec1dcc 100644
        </header>
 -      {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 80, minHeight: 42, padding: '10px 16px', borderRadius: 13, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 15, fontWeight: 800, letterSpacing: '.06em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
 -      {view === 'home' ? <main style={{ marginTop: coolantCritical ? 52 : 0, marginLeft: 68, display: 'grid', gridTemplateColumns: 'minmax(0,3fr) minmax(0,2fr)', gap: 10, minHeight: 0 }}>
-+      {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 102, minHeight: 50, padding: '12px 18px', borderRadius: 14, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 21, fontWeight: 800, letterSpacing: '.025em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
-+      {view === 'home' ? <main style={{ marginTop: coolantCritical ? 60 : 0, marginLeft: 90, display: 'grid', gridTemplateColumns: 'minmax(0,3fr) minmax(0,2fr)', gap: 10, minHeight: 0 }}>
-         <article style={{ order: 2, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: `2px solid ${coolantTone}33`, borderRadius: 17, background: '#101412' }}>
+-        <article style={{ order: 2, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: `2px solid ${coolantTone}33`, borderRadius: 17, background: '#101412' }}>
 -          <div style={{ color: '#c9d0c8', fontSize: 14, fontWeight: 700, letterSpacing: '.09em', whiteSpace: 'nowrap' }}>COOLANT · °C</div>
 -          <div style={{ marginTop: 18, color: coolantTone, fontSize: 144, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.coolant_c)}</div>
 -          <div style={{ position: 'absolute', right: 20, bottom: 15, left: 20, height: 10, borderRadius: 8, background: 'linear-gradient(90deg,#b8d699 0 52%,#f0c44f 52% 75%,#e9574e 75%)' }} />
-+          <div style={{ color: coolantTextTone, fontSize: 22, fontWeight: 700, letterSpacing: '.045em', whiteSpace: 'nowrap' }}>COOLANT</div>
-+          <div style={{ marginTop: 18, color: coolantTextTone, fontSize: 144, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.coolant_c)}</div>
-+          <div style={{ position: 'absolute', right: 20, bottom: 20, left: 20, color: coolantTextTone, fontSize: 18, fontWeight: 700, letterSpacing: '.045em' }}>°C</div>
-+          <div style={{ position: 'absolute', right: 20, bottom: 48, left: 20, color: '#aeb7ae', fontSize: 15, fontWeight: 700, letterSpacing: '.025em' }}>{consumptionText}</div>
-         </article>
-         <article style={{ order: 1, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}>
+-        </article>
+-        <article style={{ order: 1, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}>
 -          <div style={{ color: '#c9d0c8', fontSize: 16, fontWeight: 700, letterSpacing: '.10em', whiteSpace: 'nowrap' }}>ENGINE SPEED · RPM</div>
++      {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 102, minHeight: 50, padding: '12px 18px', borderRadius: 14, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 21, fontWeight: 800, letterSpacing: '.025em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
++      {view === 'home' ? <main style={{ marginTop: coolantCritical ? 60 : 0, marginLeft: 90, display: 'grid', gridTemplateColumns: 'minmax(0,3fr) minmax(0,2fr)', gap: 10, minHeight: 0 }}>
++        <article style={{ position: 'relative', overflow: 'hidden', padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}>
 +          <div style={{ color: '#c9d0c8', fontSize: 24, fontWeight: 700, letterSpacing: '.035em', whiteSpace: 'nowrap' }}>ENGINE SPEED</div>
            <div style={{ marginTop: 18, fontSize: 144, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.rpm)}</div>
 -          <div style={{ position: 'absolute', right: 20, bottom: 15, left: 20, height: 10, overflow: 'visible', borderRadius: 8, background: 'linear-gradient(90deg,#b8c0ba 0 88%,#f4544c 88% 100%)' }}><i style={{ position: 'absolute', top: -4, left: `${rpmBar}%`, width: 5, height: 18, borderRadius: 4, background: '#f4f7f0', boxShadow: '0 0 9px #f4f7f099', transform: 'translateX(-50%)', transition: 'left .22s ease-out' }} /></div>
@@ -365,6 +368,18 @@ index 2304492..5ec1dcc 100644
          </article>
 -      </main> : <main style={{ marginTop: coolantCritical ? 52 : 0, marginLeft: 68, display: 'grid', gridTemplateColumns: view === 'injectors' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gridTemplateRows: view === 'injectors' ? 'repeat(2,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gap: 10, minHeight: 0 }}>
 -        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(data.boost_kpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
++        <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 2.25fr) minmax(112px, 1fr)', gap: 10, minHeight: 0 }}>
++          <article style={{ position: 'relative', overflow: 'hidden', padding: '18px 20px', border: `2px solid ${coolantTone}33`, borderRadius: 17, background: '#101412' }}>
++            <div style={{ color: coolantTextTone, fontSize: 22, fontWeight: 700, letterSpacing: '.045em', whiteSpace: 'nowrap' }}>COOLANT</div>
++            <div style={{ marginTop: 18, color: coolantTextTone, fontSize: 116, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.coolant_c)}</div>
++            <div style={{ position: 'absolute', right: 20, bottom: 18, left: 20, color: coolantTextTone, fontSize: 18, fontWeight: 700, letterSpacing: '.045em' }}>°C</div>
++          </article>
++          <article style={{ minWidth: 0, padding: '14px 18px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
++            <div style={{ color: '#c9d0c8', fontSize: 17, fontWeight: 700, letterSpacing: '.055em' }}>SNITTFÖRBRUKNING</div>
++            <div style={{ marginTop: 6, color: '#eef3ea', fontSize: 48, fontWeight: 700, letterSpacing: '-.07em', lineHeight: '.84' }}>{consumptionValue != null ? text(consumptionValue, 1) : '—'}</div>
++            <div style={{ marginTop: 6, color: '#aeb7ae', fontSize: 14, fontWeight: 700, letterSpacing: '.03em' }}>{consumptionUnit}</div>
++          </article>
++        </div>
 +      </main> : <main
 +        style={{
 +          marginTop: coolantCritical ? 60 : 0,
