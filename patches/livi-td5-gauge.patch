@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..c183c8f 100644
+index 2304492..a4dd6e2 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -254,7 +254,7 @@ index 2304492..c183c8f 100644
 
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +211,65 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +211,71 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
 
    if (!visible) return null
@@ -304,6 +304,12 @@ index 2304492..c183c8f 100644
 +    </article>
 +  )
 +  const samples = history.samples.slice(-120)
++  const injectorAverages = Array.from({ length: 5 }, (_, index) => {
++    const values = history.samples
++      .map((sample) => sample.injector_balance?.[index])
++      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
++    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
++  })
 +  const alerts = [...(data.session?.alerts?.active ?? []), ...(data.session?.alerts?.history ?? [])]
 +  const faultSummary = data.dtc?.codes?.length
 +    ? data.dtc.codes.map((fault) => `${fault.state === 'AKTIV' ? 'AKTIV' : 'LAGRAD'} FELKOD ${fault.code ?? '—'} · ${fault.description ?? 'Okänd Td5-funktion'}`).join('\n')
@@ -324,7 +330,7 @@ index 2304492..c183c8f 100644
      </article>
    )
 
-@@ -142,50 +284,99 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +290,99 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -381,8 +387,8 @@ index 2304492..c183c8f 100644
 +          marginTop: coolantCritical ? 60 : 0,
 +          marginLeft: 90,
 +          display: 'grid',
-+          gridTemplateColumns: view === 'injectors' || view === 'injectorTrend' || view === 'fuel' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
-+          gridTemplateRows: view === 'ecu' ? 'auto auto' : view === 'fuel' ? 'repeat(3,minmax(150px,1fr))' : 'repeat(2,minmax(0,1fr))',
++          gridTemplateColumns: view === 'injectors' || view === 'injectorTrend' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
++          gridTemplateRows: view === 'ecu' ? 'auto auto' : view === 'fuel' ? 'repeat(5,minmax(132px,1fr))' : 'repeat(2,minmax(0,1fr))',
 +          gap: 10,
 +          minHeight: 0,
 +          overflowX: 'hidden',
@@ -394,8 +400,9 @@ index 2304492..c183c8f 100644
 +        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(boostKpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
          {view === 'charging' && <>{metric('ALTERNATOR', text(data.voltage_v, 1), 'V', alternatorTone(data.voltage_v, engineRunning))}{metric('FUEL TEMP', text(data.fuel_c), '°C', warningTone(data.fuel_c, 75, 85))}</>}
          {view === 'air' && <>{metric('INLET AIR', text(data.air_c), '°C', warningTone(data.air_c, 65, 80))}{metric('MAF', text(data.maf_kg_h), 'kg/h')}{metric('MAP · ABSOLUT', text(data.map_kpa), 'kPa', warningTone(data.map_kpa, 230, 240))}</>}
+-        {view === 'injectors' && Array.from({ length: 5 }, (_, index) => metric(`INJ ${index + 1}`, text(data.injector_balance?.[index]), 'ECU RAW'))}
 +        {view === 'fuel' && <>{metric('SNITT · 10 MIL', consumptionPerMil != null ? text(consumptionPerMil, 2) : '—', data.consumption?.l_per_100km != null ? 'l/mil · KLAR' : data.consumption?.provisional_l_per_100km != null ? `l/mil · ${text(data.consumption.distance_km, 1)} km HITTILLS` : 'SAMLAR KÖRDATA')}{metric('LITER PER TIMME', text(data.consumption?.current_lph, 1), 'l/h · BERÄKNAT')}{metric('FUEL INJECTED', text(data.fuel_injected_mg, 2), 'mg/slag · ECU')}{metric('IDLE FUEL', text(data.idle_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('FUEL DEMAND', text(data.driver_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}{metric('THROTTLE 2', text(data.throttle_2, 2), 'V')}{metric('THROTTLE 3', text(data.throttle_3, 2), 'V')}{metric('THROTTLE SUPPLY', text(data.throttle_supply_v, 2), 'V')}</>}
-         {view === 'injectors' && Array.from({ length: 5 }, (_, index) => metric(`INJ ${index + 1}`, text(data.injector_balance?.[index]), 'ECU RAW'))}
++        {view === 'injectors' && Array.from({ length: 5 }, (_, index) => metric(`INJ ${index + 1}`, text(injectorAverages[index], 1), 'SNITT · SESSION'))}
 +        {view === 'trends' && <>{serviceCard('MAX COOLANT', text(data.session?.peaks?.coolant_c), '°C · DENNA KÖRNING', tempTone(data.session?.peaks?.coolant_c))}{serviceCard('MAX LADDTRYCK', text(data.session?.peaks?.boost_kpa), 'kPa · BERÄKNAT')}{serviceCard('MAX VARVTAL', text(data.session?.peaks?.rpm), 'RPM · DENNA KÖRNING')}{serviceCard('LADDSPÄNNING', data.session?.voltage_range?.[0] != null ? `${text(data.session.voltage_range[0], 1)}–${text(data.session.voltage_range[1], 1)}` : '—', 'V · LÄGSTA–HÖGSTA')}</>}
 +        {view === 'history' && <>{serviceCard('KÖRTID', duration(data.session?.duration_s), 'DEN HÄR SESSIONEN')}{serviceCard('HISTORIK', String(history.samples.length), `AV MAX ${history.max_samples ?? 720} MÄTPUNKTER`)}{serviceCard('KÖRLOGG', data.session?.log_active ? 'AKTIV' : 'VÄNTAR', 'LOKAL · BEGRÄNSAD LAGRING')}{serviceCard('LARMHISTORIK', alerts.length ? `${alerts.length} HÄNDELSE${alerts.length === 1 ? '' : 'R'}` : 'INGA LARM', alerts.length ? alerts.slice(0, 2).map((alert) => `${alert.name} ${text(alert.value, 1)} ${alert.unit}`).join(' · ') : 'INGA VARNINGAR I SESSIONEN')}</>}
 +        {view === 'ecu' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-ANSLUTNING</div><div style={{ marginTop: 10, color: connectionTone, fontSize: 32, fontWeight: 700 }}>{data.status?.toUpperCase() ?? '—'}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16 }}>{ecuConnectionMessage}</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FELKODER · ENDAST LÄSNING</div><div style={{ marginTop: 9, color: data.dtc?.codes?.length ? (hasActiveFault ? '#f4544c' : '#f0c44f') : '#eef3ea', fontSize: 22, lineHeight: 1.15, whiteSpace: 'pre-line' }}>{faultSummary}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 15 }}>{dtcMessage}</div><button type="button" disabled={data.status !== 'Ansluten' || dtcReadBusy} onClick={() => void requestDtcRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{dtcReadBusy ? 'LÄSER…' : 'LÄS FELKODER'}</button></article></>}
