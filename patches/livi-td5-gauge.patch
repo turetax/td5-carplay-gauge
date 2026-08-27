@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..280a083 100644
+index 2304492..7bbc2b6 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -381,7 +381,7 @@ index 2304492..280a083 100644
 -          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 -            {([['home', 'HEM', 'Coolant och motorvarvtal'], ['boost', 'TURBO & GAS', 'Laddtryck, wastegate och gas'], ['charging', 'LADDNING', 'Alternator och bränsletemperatur'], ['air', 'LUFT & MAP', 'Insugsluft, MAF och MAP'], ['injectors', 'INJEKTORER', 'Cylindrarnas balansvärden']] as const).map(([key, label, description]) => <button key={key} type="button" onClick={() => openView(key)} style={{ minHeight: 82, padding: '14px 16px', border: key === view ? '2px solid #b8d699' : '1px solid #ffffff18', borderRadius: 15, background: '#202721', color: '#eef3ea', textAlign: 'left' }}><b style={{ display: 'block', fontSize: 16, letterSpacing: '.08em' }}>{label}</b><small style={{ display: 'block', marginTop: 7, color: '#b8c2b7', fontSize: 12 }}>{description}</small></button>)}
 -          </div>
-+        <aside style={{ position: 'absolute', inset: 12, zIndex: 4, padding: 18, overflow: 'hidden', border: '1px solid #ffffff22', borderRadius: 18, background: '#151a17', boxShadow: '0 20px 60px #000d' }}>
++        <aside style={{ position: 'absolute', inset: 12, zIndex: 4, padding: 18, paddingRight: 12, overflowX: 'hidden', overflowY: 'auto', touchAction: 'pan-y', border: '1px solid #ffffff22', borderRadius: 18, background: '#151a17', boxShadow: '0 20px 60px #000d' }}>
 +          <button type="button" onClick={() => { setMenu(false); setMenuLevel('main') }} style={{ float: 'right', width: 84, height: 74, border: 0, borderRadius: 18, background: '#ffffff12', color: '#fff', fontSize: 50 }}>×</button>
 +          <h2 style={{ margin: '14px 0 20px', fontSize: 33, letterSpacing: '.04em' }}>{menuLevel === 'main' ? 'TD5 MENY' : 'SERVICE & DIAGNOSTIK'}</h2>
 +          {menuLevel === 'main' ? <>
