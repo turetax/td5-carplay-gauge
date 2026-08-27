@@ -40,6 +40,10 @@ The gateway and dashboard are read-oriented. Fault-code requests only read store
 and active faults; they do not clear codes, change ECU settings, or perform actuator
 commands.
 
+On the reference Pi, the TD5 gateway has exactly one boot entry: the desktop
+user's `@reboot` cron entry. Do not additionally enable the optional systemd
+gateway unit on that Pi, since two copies cannot share the local API port.
+
 ### Diagnostic architecture
 
 The gateway is deliberately separated into a TD5 protocol layer and a small
