@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..a4dd6e2 100644
+index 2304492..2103937 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -181,7 +181,13 @@ index 2304492..a4dd6e2 100644
 
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
-@@ -42,23 +115,14 @@ function alternatorTone(value: number | null | undefined, engineRunning: boolean
+@@ -37,28 +110,18 @@ function warningTone(value: number | null | undefined, warning: number, danger:
+
+ function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
+   if (value == null) return '#eef3ea'
+-  if (value > 15 || (engineRunning && value < 13)) return '#f4544c'
+-  if (engineRunning && value < 13.2) return '#f0c44f'
++  if (engineRunning && (value < 11.7 || value > 14.7)) return '#f4544c'
    return '#eef3ea'
  }
 
@@ -210,7 +216,7 @@ index 2304492..a4dd6e2 100644
 
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +144,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +143,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
 
@@ -254,7 +260,7 @@ index 2304492..a4dd6e2 100644
 
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +211,71 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +210,71 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
 
    if (!visible) return null
@@ -330,7 +336,7 @@ index 2304492..a4dd6e2 100644
      </article>
    )
 
-@@ -142,50 +290,99 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +289,99 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>

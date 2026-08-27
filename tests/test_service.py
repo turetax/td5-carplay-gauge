@@ -46,6 +46,9 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("Alternator", service.active_alerts)
 
         service._evaluate_alerts(sample(updated_at=1001.0, voltage_v=12.7, engine_on=True))
+        self.assertNotIn("Alternator", service.active_alerts)
+
+        service._evaluate_alerts(sample(updated_at=1002.0, voltage_v=11.6, engine_on=True))
         self.assertEqual(service.active_alerts["Alternator"]["level"], "danger")
 
     def test_missing_serial_adapter_has_a_human_readable_error(self):

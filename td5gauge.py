@@ -506,12 +506,10 @@ class Service:
         if coolant_level:
             add("Coolant", coolant, coolant_level, "°C")
         if sample["engine_on"] and voltage is not None:
-            previous = self.active_alerts.get("Alternator", {}).get("level")
-            low_warn = voltage < 13.2 or (previous == "warn" and voltage < 13.4)
-            low_danger = voltage < 13.0 or (previous == "danger" and voltage < 13.2)
-            high_danger = voltage > 15.0 or (previous == "danger" and voltage > 14.8)
-            if low_warn or high_danger:
-                add("Alternator", voltage, "danger" if low_danger or high_danger else "warn", "V")
+            # The owner-selected normal range is deliberately inclusive. Do not
+            # retain a previous alarm into 11.7–14.7 V through hysteresis.
+            if voltage < 11.7 or voltage > 14.7:
+                add("Alternator", voltage, "danger", "V")
         fuel_level = rising_level("Fuel temp", fuel, [("warn", 75), ("danger", 85)], 2)
         if fuel_level:
             add("Fuel temp", fuel, fuel_level, "°C")
