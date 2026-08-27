@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..48682b5 100644
+index 2304492..ce637c2 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -97,17 +97,18 @@ index 2304492..48682b5 100644
    coolant_c?: number | null
    rpm?: number | null
    voltage_v?: number | null
-@@ -13,12 +15,82 @@ type Td5Live = {
+@@ -13,12 +15,83 @@ type Td5Live = {
    maf_kg_h?: number | null
    wastegate_percent?: number | null
    throttle_1?: number | null
 +  throttle_2?: number | null
 +  throttle_3?: number | null
 +  throttle_supply_v?: number | null
++  ecu_variant?: string | null
 +  driver_fuel_demand_mg?: number | null
 +  fuel_injected_mg?: number | null
 +  idle_fuel_demand_mg?: number | null
-+  injector_balance?: number[] | null
+   injector_balance?: number[] | null
 +  session?: {
 +    started_at?: number
 +    duration_s?: number
@@ -120,8 +121,8 @@ index 2304492..48682b5 100644
 +  feature_configuration?: { raw?: string; updated_at?: number; error?: string; pending?: boolean; read_only?: boolean }
 +  consumption?: { target_km?: number; distance_km?: number; l_per_100km?: number | null; current_lph?: number | null }
 +  abs?: { expected_controller?: string; state?: string; detail?: string; read_only?: boolean; engine_kline_ready?: boolean }
-+}
-+
+ }
+
 +type Td5Alert = { name: string; value: number; unit: string; level: string; duration_s?: number }
 +type Td5Fault = { code?: string; description?: string; state?: string; counter?: number }
 +type Td5Sample = {
@@ -136,11 +137,11 @@ index 2304492..48682b5 100644
 +  boost_kpa?: number | null
 +  maf_kg_h?: number | null
 +  wastegate_percent?: number | null
-   injector_balance?: number[] | null
- }
++  injector_balance?: number[] | null
++}
 +type Td5History = { samples: Td5Sample[]; max_samples?: number }
-+type Td5View = 'home' | 'boost' | 'charging' | 'air' | 'fuel' | 'injectors' | 'trends' | 'history' | 'ecu' | 'abs' | 'injectorId' | 'turboHealth' | 'injectorTrend'
-
++type Td5View = 'home' | 'boost' | 'charging' | 'air' | 'fuel' | 'injectors' | 'trends' | 'history' | 'ecu' | 'ecuIdentity' | 'abs' | 'injectorId' | 'turboHealth' | 'injectorTrend'
++
  const blank: Td5Live = { status: 'Söker ECU' }
 +const emptyHistory: Td5History = { samples: [] }
  const text = (value: number | null | undefined, decimals = 0) =>
@@ -180,7 +181,7 @@ index 2304492..48682b5 100644
 
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
-@@ -42,23 +114,13 @@ function alternatorTone(value: number | null | undefined, engineRunning: boolean
+@@ -42,23 +115,14 @@ function alternatorTone(value: number | null | undefined, engineRunning: boolean
    return '#eef3ea'
  }
 
@@ -205,10 +206,11 @@ index 2304492..48682b5 100644
 +  const [menuLevel, setMenuLevel] = useState<'main' | 'service'>('main')
 +  const [view, setView] = useState<Td5View>('home')
 +  const [dtcReadBusy, setDtcReadBusy] = useState(false)
++  const [identityReadBusy, setIdentityReadBusy] = useState(false)
 
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +142,37 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +144,37 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
 
@@ -248,7 +250,7 @@ index 2304492..48682b5 100644
 
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +205,54 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +207,65 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
 
    if (!visible) return null
@@ -267,6 +269,17 @@ index 2304492..48682b5 100644
 +      // The ECU result shown below remains read-only even if this request fails.
 +    } finally {
 +      window.setTimeout(() => setDtcReadBusy(false), 1200)
++    }
++  }
++  const requestIdentityRead = async () => {
++    if (identityReadBusy || data.status !== 'Ansluten') return
++    setIdentityReadBusy(true)
++    try {
++      await fetch('http://127.0.0.1:8080/api/feature-config/read', { method: 'POST', cache: 'no-store' })
++    } catch {
++      // The UI remains read-only even if the ECU does not answer this optional request.
++    } finally {
++      window.setTimeout(() => setIdentityReadBusy(false), 1200)
 +    }
    }
    const metric = (label: string, value: string, unit: string, tone = '#eef3ea') => (
@@ -307,7 +320,7 @@ index 2304492..48682b5 100644
      </article>
    )
 
-@@ -142,50 +267,91 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +280,93 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -373,6 +386,7 @@ index 2304492..48682b5 100644
 +        {view === 'trends' && <>{serviceCard('MAX COOLANT', text(data.session?.peaks?.coolant_c), '°C · DENNA KÖRNING', tempTone(data.session?.peaks?.coolant_c))}{serviceCard('MAX LADDTRYCK', text(data.session?.peaks?.boost_kpa), 'kPa · BERÄKNAT')}{serviceCard('MAX VARVTAL', text(data.session?.peaks?.rpm), 'RPM · DENNA KÖRNING')}{serviceCard('LADDSPÄNNING', data.session?.voltage_range?.[0] != null ? `${text(data.session.voltage_range[0], 1)}–${text(data.session.voltage_range[1], 1)}` : '—', 'V · LÄGSTA–HÖGSTA')}</>}
 +        {view === 'history' && <>{serviceCard('KÖRTID', duration(data.session?.duration_s), 'DEN HÄR SESSIONEN')}{serviceCard('HISTORIK', String(history.samples.length), `AV MAX ${history.max_samples ?? 720} MÄTPUNKTER`)}{serviceCard('KÖRLOGG', data.session?.log_active ? 'AKTIV' : 'VÄNTAR', 'LOKAL · BEGRÄNSAD LAGRING')}{serviceCard('LARMHISTORIK', alerts.length ? `${alerts.length} HÄNDELSE${alerts.length === 1 ? '' : 'R'}` : 'INGA LARM', alerts.length ? alerts.slice(0, 2).map((alert) => `${alert.name} ${text(alert.value, 1)} ${alert.unit}`).join(' · ') : 'INGA VARNINGAR I SESSIONEN')}</>}
 +        {view === 'ecu' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-ANSLUTNING</div><div style={{ marginTop: 10, color: connectionTone, fontSize: 32, fontWeight: 700 }}>{data.status?.toUpperCase() ?? '—'}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16 }}>{ecuConnectionMessage}</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FELKODER · ENDAST LÄSNING</div><div style={{ marginTop: 9, color: data.dtc?.codes?.length ? (hasActiveFault ? '#f4544c' : '#f0c44f') : '#eef3ea', fontSize: 22, lineHeight: 1.15, whiteSpace: 'pre-line' }}>{faultSummary}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 15 }}>{dtcMessage}</div><button type="button" disabled={data.status !== 'Ansluten' || dtcReadBusy} onClick={() => void requestDtcRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{dtcReadBusy ? 'LÄSER…' : 'LÄS FELKODER'}</button></article></>}
++        {view === 'ecuIdentity' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-IDENTITET · DIAGNOSTIKPROFIL</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 32, fontWeight: 700 }}>{data.ecu_variant ? `${data.ecu_variant} ECU` : 'IDENTIFIERAS…'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.ecu_variant === 'NNN' ? 'NNN-profil bekräftad av pedalram med tre spår och 5 V-referens.' : data.ecu_variant === 'MSB' ? 'MSB-profil bekräftad av den korta pedalramen.' : 'Väntar på ett komplett pedalsvar från ECU:n.'}</div><div style={{ marginTop: 8, color: '#899088', fontSize: 15, lineHeight: 1.3 }}>Detta identifierar diagnosfamiljen, inte ett verifierat reservdels- eller serienummer.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-KONFIGURATION · 21 3D</div><div style={{ marginTop: 10, color: data.feature_configuration?.raw ? '#eef3ea' : '#f0c44f', fontSize: 19, fontWeight: 700, lineHeight: 1.25, overflowWrap: 'anywhere' }}>{data.feature_configuration?.raw || (data.feature_configuration?.pending ? 'LÄSER KONFIGURATION…' : 'INTE LÄST ÄNNU')}</div><div style={{ marginTop: 9, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>Rått, skrivskyddat konfigurationsblock. Det används inte som injektorkod eller serienummer.</div><button type="button" disabled={data.status !== 'Ansluten' || identityReadBusy} onClick={() => void requestIdentityRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{identityReadBusy ? 'LÄSER…' : 'LÄS ECU-KONFIGURATION'}</button></article></>}
 +        {view === 'abs' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ABS · DIAGNOSTIKSTATUS</div><div style={{ marginTop: 10, color: data.abs?.engine_kline_ready ? '#eef3ea' : '#f0c44f', fontSize: 29, fontWeight: 700 }}>{data.abs?.state?.toUpperCase() ?? 'VÄNTAR PÅ STATUS'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.abs?.detail ?? 'ABS-information är inte tillgänglig ännu.'}</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FRAMTIDA ABS-SERVICE</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 22, fontWeight: 700 }}>INGA AKTUATORER AKTIVA</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>ABS-luftning och pump-/ventiltester kräver Defender-specifik protokollvalidering. Den här sidan är endast läsande.</div></article></>}
 +        {view === 'injectorId' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>INJEKTOR-ID · ECU-KONFIGURATION</div><div style={{ marginTop: 10, color: '#f0c44f', fontSize: 28, fontWeight: 700 }}>INGEN VERIFIERAD LÄSMETOD ÄNNU</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>Td5:s funktionsblock 21 3D innehåller inte bekräftade injektorkoder. Femteckenskod och idle-nummer visas först när en separat, verifierad läsmetod har hittats.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>VAD SOM BEHÖVS</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 23, fontWeight: 700 }}>EN SEPARAT, VALIDERAD SETTINGS-LÄSNING</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>Ingen inställning eller injektorkod kommer att skrivas från denna dashboard.</div></article></>}
 +        {view === 'turboHealth' && <article style={{ gridColumn: '1 / -1', gridRow: '1 / -1', minWidth: 0, padding: 12, border: '1px solid #ffffff18', borderRadius: 17, background: '#101412', display: 'grid', gap: 8, alignContent: 'center' }}><div style={{ padding: '2px 6px 5px', color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>TURBO HEALTH · SENASTE 2 MIN</div>{trend('MAP', samples.map((sample) => sample.map_kpa), '#f0c44f', `${text(data.map_kpa)} kPa`)}{trend('WASTEGATE', samples.map((sample) => sample.wastegate_percent), '#b8d699', `${text(data.wastegate_percent)} %`)}{trend('MAF', samples.map((sample) => sample.maf_kg_h), '#eef3ea', `${text(data.maf_kg_h)} kg/h`)}</article>}
@@ -411,6 +425,7 @@ index 2304492..48682b5 100644
 +            <button type="button" onClick={() => setMenuLevel('main')} style={{ minHeight: 42, marginBottom: 10, padding: '0 14px', border: 0, borderRadius: 13, background: '#ffffff12', color: '#eef3ea', fontSize: 17, fontWeight: 800, letterSpacing: '.04em' }}>‹ KÖRVYER</button>
 +            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
 +              {menuCard('ecu', 'ECU & FELKODER', 'Anslutning · endast läsning', true)}
++              {menuCard('ecuIdentity', 'ECU-IDENTITET', 'Diagnostikprofil · konfiguration', true)}
 +              {menuCard('abs', 'ABS', 'Status · framtida service', true)}
 +              {menuCard('injectorId', 'INJEKTOR-ID', 'Koder · väntar på verifiering', true)}
 +              {menuCard('trends', 'TOPPVÄRDEN', 'Temperatur, laddtryck och RPM', true)}

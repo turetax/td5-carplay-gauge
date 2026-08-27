@@ -38,7 +38,7 @@ FUEL_WINDOW_RETAIN_KM = 120.0
 LIVE_FIELDS = (
     "rpm", "speed_kmh", "voltage_v", "coolant_c", "air_c", "fuel_c",
     "map_kpa", "aap_kpa", "maf_kg_h", "wastegate_percent", "throttle_1",
-    "throttle_2", "throttle_3", "throttle_supply_v", "driver_fuel_demand_mg",
+    "throttle_2", "throttle_3", "throttle_supply_v", "ecu_variant", "driver_fuel_demand_mg",
     "fuel_injected_mg", "idle_fuel_demand_mg", "injector_balance",
 )
 
@@ -62,6 +62,7 @@ class GaugeData:
     throttle_2: float | None = None
     throttle_3: float | None = None
     throttle_supply_v: float | None = None
+    ecu_variant: str | None = None
     driver_fuel_demand_mg: float | None = None
     fuel_injected_mg: float | None = None
     idle_fuel_demand_mg: float | None = None
@@ -287,6 +288,10 @@ class Td5Protocol:
         else:
             data.throttle_3 = None
             data.throttle_supply_v = None
+        # The 14-byte NNN pedal response contains track 3 and its 5 V supply;
+        # the shorter MSB frame does not. This identifies the diagnostic family,
+        # not an ECU part number or serial number.
+        data.ecu_variant = "NNN" if self.nnn else "MSB"
         wastegate = self.transact("wastegate")
         data.wastegate_percent = self.u16(wastegate, 4) / 1000
         self.transact("keep_alive")
