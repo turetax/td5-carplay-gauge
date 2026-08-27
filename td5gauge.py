@@ -454,7 +454,13 @@ class Service:
     def _rolling_consumption(self) -> dict:
         remaining = FUEL_WINDOW_TARGET_KM
         distance = fuel = 0.0
-        for bucket in reversed(self.fuel_window):
+        # Include the current partial 100 m bucket in the displayed provisional
+        # average. It is only persisted once complete, but it is still a real
+        # distance/fuel measurement and makes the dashboard useful immediately.
+        buckets = list(self.fuel_window)
+        if self.fuel_bucket["distance_km"] > 0:
+            buckets.append(dict(self.fuel_bucket))
+        for bucket in reversed(buckets):
             take = min(remaining, bucket["distance_km"])
             if take <= 0:
                 continue
@@ -467,6 +473,7 @@ class Service:
             "target_km": FUEL_WINDOW_TARGET_KM,
             "distance_km": round(distance, 1),
             "l_per_100km": round(fuel / distance * 100, 1) if distance >= FUEL_WINDOW_TARGET_KM else None,
+            "provisional_l_per_100km": round(fuel / distance * 100, 1) if distance >= 0.1 else None,
         }
 
     def _evaluate_alerts(self, sample: dict) -> None:

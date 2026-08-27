@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..ce637c2 100644
+index 2304492..5ec1dcc 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -119,7 +119,7 @@ index 2304492..ce637c2 100644
 +  }
 +  dtc?: { codes?: Td5Fault[]; raw?: string; updated_at?: number; error?: string; pending?: boolean }
 +  feature_configuration?: { raw?: string; updated_at?: number; error?: string; pending?: boolean; read_only?: boolean }
-+  consumption?: { target_km?: number; distance_km?: number; l_per_100km?: number | null; current_lph?: number | null }
++  consumption?: { target_km?: number; distance_km?: number; l_per_100km?: number | null; provisional_l_per_100km?: number | null; current_lph?: number | null }
 +  abs?: { expected_controller?: string; state?: string; detail?: string; read_only?: boolean; engine_kline_ready?: boolean }
  }
 
@@ -210,7 +210,7 @@ index 2304492..ce637c2 100644
 
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +144,37 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +144,39 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
 
@@ -245,12 +245,14 @@ index 2304492..ce637c2 100644
 +  const connectionTone = data.status === 'Ansluten' ? '#eef3ea' : '#f0c44f'
 +  const boostKpa = data.map_kpa != null && data.aap_kpa != null ? data.map_kpa - data.aap_kpa : null
 +  const consumptionText = data.consumption?.l_per_100km != null
-+    ? `${text(data.consumption.l_per_100km, 1)} l/100 km`
-+    : `${text(data.consumption?.distance_km, 0)} / ${text(data.consumption?.target_km, 0)} km`
++    ? `SNITT 10 MIL · ${text(data.consumption.l_per_100km, 1)} l/100 km`
++    : data.consumption?.provisional_l_per_100km != null
++      ? `SNITT HITTILLS · ${text(data.consumption.provisional_l_per_100km, 1)} l/100 km · ${text(data.consumption.distance_km, 1)} / ${text(data.consumption.target_km, 0)} km`
++      : `SAMLAR FÖRBRUKNING · ${text(data.consumption?.distance_km, 0)} / ${text(data.consumption?.target_km, 0)} km`
 
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +207,65 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +209,65 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
 
    if (!visible) return null
@@ -320,7 +322,7 @@ index 2304492..ce637c2 100644
      </article>
    )
 
-@@ -142,50 +280,93 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +282,93 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -352,7 +354,7 @@ index 2304492..ce637c2 100644
 +          <div style={{ color: coolantTextTone, fontSize: 22, fontWeight: 700, letterSpacing: '.045em', whiteSpace: 'nowrap' }}>COOLANT</div>
 +          <div style={{ marginTop: 18, color: coolantTextTone, fontSize: 144, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.coolant_c)}</div>
 +          <div style={{ position: 'absolute', right: 20, bottom: 20, left: 20, color: coolantTextTone, fontSize: 18, fontWeight: 700, letterSpacing: '.045em' }}>°C</div>
-+          <div style={{ position: 'absolute', right: 20, bottom: 48, left: 20, color: '#aeb7ae', fontSize: 15, fontWeight: 700, letterSpacing: '.025em' }}>SNITT 10 MIL · {consumptionText}</div>
++          <div style={{ position: 'absolute', right: 20, bottom: 48, left: 20, color: '#aeb7ae', fontSize: 15, fontWeight: 700, letterSpacing: '.025em' }}>{consumptionText}</div>
          </article>
          <article style={{ order: 1, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}>
 -          <div style={{ color: '#c9d0c8', fontSize: 16, fontWeight: 700, letterSpacing: '.10em', whiteSpace: 'nowrap' }}>ENGINE SPEED · RPM</div>
@@ -381,7 +383,7 @@ index 2304492..ce637c2 100644
 +        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(boostKpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
          {view === 'charging' && <>{metric('ALTERNATOR', text(data.voltage_v, 1), 'V', alternatorTone(data.voltage_v, engineRunning))}{metric('FUEL TEMP', text(data.fuel_c), '°C', warningTone(data.fuel_c, 75, 85))}</>}
          {view === 'air' && <>{metric('INLET AIR', text(data.air_c), '°C', warningTone(data.air_c, 65, 80))}{metric('MAF', text(data.maf_kg_h), 'kg/h')}{metric('MAP · ABSOLUT', text(data.map_kpa), 'kPa', warningTone(data.map_kpa, 230, 240))}</>}
-+        {view === 'fuel' && <>{metric('SNITT · 10 MIL', data.consumption?.l_per_100km != null ? text(data.consumption.l_per_100km, 1) : '—', data.consumption?.l_per_100km != null ? 'l/100 km' : `SAMLAR · ${consumptionText}`)}{metric('FÖRBRUKNING NU', text(data.consumption?.current_lph, 1), 'l/h · BERÄKNAT')}{metric('FUEL INJECTED', text(data.fuel_injected_mg, 2), 'mg/slag · ECU')}{metric('IDLE FUEL', text(data.idle_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('FUEL DEMAND', text(data.driver_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}{metric('THROTTLE 2', text(data.throttle_2, 2), 'V')}{metric('THROTTLE 3', text(data.throttle_3, 2), 'V')}{metric('THROTTLE SUPPLY', text(data.throttle_supply_v, 2), 'V')}</>}
++        {view === 'fuel' && <>{metric('SNITT · 10 MIL', data.consumption?.l_per_100km != null ? text(data.consumption.l_per_100km, 1) : data.consumption?.provisional_l_per_100km != null ? text(data.consumption.provisional_l_per_100km, 1) : '—', data.consumption?.l_per_100km != null ? 'l/100 km · KLAR' : data.consumption?.provisional_l_per_100km != null ? `l/100 km · ${text(data.consumption.distance_km, 1)} km HITTILLS` : 'SAMLAR KÖRDATA')}{metric('FÖRBRUKNING NU', text(data.consumption?.current_lph, 1), 'l/h · BERÄKNAT')}{metric('FUEL INJECTED', text(data.fuel_injected_mg, 2), 'mg/slag · ECU')}{metric('IDLE FUEL', text(data.idle_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('FUEL DEMAND', text(data.driver_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}{metric('THROTTLE 2', text(data.throttle_2, 2), 'V')}{metric('THROTTLE 3', text(data.throttle_3, 2), 'V')}{metric('THROTTLE SUPPLY', text(data.throttle_supply_v, 2), 'V')}</>}
          {view === 'injectors' && Array.from({ length: 5 }, (_, index) => metric(`INJ ${index + 1}`, text(data.injector_balance?.[index]), 'ECU RAW'))}
 +        {view === 'trends' && <>{serviceCard('MAX COOLANT', text(data.session?.peaks?.coolant_c), '°C · DENNA KÖRNING', tempTone(data.session?.peaks?.coolant_c))}{serviceCard('MAX LADDTRYCK', text(data.session?.peaks?.boost_kpa), 'kPa · BERÄKNAT')}{serviceCard('MAX VARVTAL', text(data.session?.peaks?.rpm), 'RPM · DENNA KÖRNING')}{serviceCard('LADDSPÄNNING', data.session?.voltage_range?.[0] != null ? `${text(data.session.voltage_range[0], 1)}–${text(data.session.voltage_range[1], 1)}` : '—', 'V · LÄGSTA–HÖGSTA')}</>}
 +        {view === 'history' && <>{serviceCard('KÖRTID', duration(data.session?.duration_s), 'DEN HÄR SESSIONEN')}{serviceCard('HISTORIK', String(history.samples.length), `AV MAX ${history.max_samples ?? 720} MÄTPUNKTER`)}{serviceCard('KÖRLOGG', data.session?.log_active ? 'AKTIV' : 'VÄNTAR', 'LOKAL · BEGRÄNSAD LAGRING')}{serviceCard('LARMHISTORIK', alerts.length ? `${alerts.length} HÄNDELSE${alerts.length === 1 ? '' : 'R'}` : 'INGA LARM', alerts.length ? alerts.slice(0, 2).map((alert) => `${alert.name} ${text(alert.value, 1)} ${alert.unit}`).join(' · ') : 'INGA VARNINGAR I SESSIONEN')}</>}
