@@ -838,6 +838,9 @@ def handler_factory(service: Service) -> type[BaseHTTPRequestHandler]:
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
+                # Keep this read-only endpoint available to LIVI's app://
+                # renderer so session averages can be displayed.
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
