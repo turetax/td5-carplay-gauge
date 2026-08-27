@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..1c9bd87 100644
+index 2304492..bdc56b9 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -97,7 +97,7 @@ index 2304492..1c9bd87 100644
    coolant_c?: number | null
    rpm?: number | null
    voltage_v?: number | null
-@@ -13,12 +15,83 @@ type Td5Live = {
+@@ -13,12 +15,87 @@ type Td5Live = {
    maf_kg_h?: number | null
    wastegate_percent?: number | null
    throttle_1?: number | null
@@ -108,7 +108,7 @@ index 2304492..1c9bd87 100644
 +  driver_fuel_demand_mg?: number | null
 +  fuel_injected_mg?: number | null
 +  idle_fuel_demand_mg?: number | null
-+  injector_balance?: number[] | null
+   injector_balance?: number[] | null
 +  session?: {
 +    started_at?: number
 +    duration_s?: number
@@ -120,11 +120,15 @@ index 2304492..1c9bd87 100644
 +  dtc?: { codes?: Td5Fault[]; raw?: string; updated_at?: number; error?: string; pending?: boolean }
 +  feature_configuration?: { raw?: string; updated_at?: number; error?: string; pending?: boolean; read_only?: boolean }
 +  consumption?: { target_km?: number; distance_km?: number; l_per_100km?: number | null; provisional_l_per_100km?: number | null; current_lph?: number | null }
-+  abs?: { expected_controller?: string; state?: string; detail?: string; read_only?: boolean; engine_kline_ready?: boolean }
-+}
-+
++  abs?: {
++    expected_controller?: string; state?: string; detail?: string; read_only?: boolean; engine_kline_ready?: boolean; stationary?: boolean
++    fault_memory?: { stored?: AbsFault[]; current?: AbsFault[]; stored_raw?: string; current_raw?: string; updated_at?: number; error?: string; pending?: boolean }
++  }
+ }
+
 +type Td5Alert = { name: string; value: number; unit: string; level: string; duration_s?: number }
 +type Td5Fault = { code?: string; description?: string; state?: string; counter?: number }
++type AbsFault = { code?: string; description?: string; byte?: number; bit?: number }
 +type Td5Sample = {
 +  updated_at?: number
 +  rpm?: number | null
@@ -137,11 +141,11 @@ index 2304492..1c9bd87 100644
 +  boost_kpa?: number | null
 +  maf_kg_h?: number | null
 +  wastegate_percent?: number | null
-   injector_balance?: number[] | null
- }
++  injector_balance?: number[] | null
++}
 +type Td5History = { samples: Td5Sample[]; max_samples?: number }
 +type Td5View = 'home' | 'boost' | 'charging' | 'air' | 'fuel' | 'injectors' | 'trends' | 'history' | 'ecu' | 'ecuIdentity' | 'abs' | 'injectorId' | 'turboHealth' | 'injectorTrend'
-
++
  const blank: Td5Live = { status: 'Söker ECU' }
 +const emptyHistory: Td5History = { samples: [] }
  const text = (value: number | null | undefined, decimals = 0) =>
@@ -181,7 +185,7 @@ index 2304492..1c9bd87 100644
 
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
-@@ -37,28 +110,18 @@ function warningTone(value: number | null | undefined, warning: number, danger:
+@@ -37,28 +114,19 @@ function warningTone(value: number | null | undefined, warning: number, danger:
 
  function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
    if (value == null) return '#eef3ea'
@@ -213,10 +217,11 @@ index 2304492..1c9bd87 100644
 +  const [view, setView] = useState<Td5View>('home')
 +  const [dtcReadBusy, setDtcReadBusy] = useState(false)
 +  const [identityReadBusy, setIdentityReadBusy] = useState(false)
++  const [absReadBusy, setAbsReadBusy] = useState(false)
 
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +143,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +148,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
 
@@ -260,7 +265,7 @@ index 2304492..1c9bd87 100644
 
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +210,72 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +215,83 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
 
    if (!visible) return null
@@ -290,6 +295,17 @@ index 2304492..1c9bd87 100644
 +      // The UI remains read-only even if the ECU does not answer this optional request.
 +    } finally {
 +      window.setTimeout(() => setIdentityReadBusy(false), 1200)
++    }
++  }
++  const requestAbsDtcRead = async () => {
++    if (absReadBusy || data.status !== 'Ansluten' || data.abs?.stationary === false) return
++    setAbsReadBusy(true)
++    try {
++      await fetch('http://127.0.0.1:8080/api/abs/faults/read', { method: 'POST', cache: 'no-store' })
++    } catch {
++      // The current status and the result/error are shown by the read-only API.
++    } finally {
++      window.setTimeout(() => setAbsReadBusy(false), 30000)
 +    }
    }
    const metric = (label: string, value: string, unit: string, tone = '#eef3ea') => (
@@ -337,7 +353,7 @@ index 2304492..1c9bd87 100644
      </article>
    )
 
-@@ -142,50 +290,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +306,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -416,7 +432,7 @@ index 2304492..1c9bd87 100644
 +        {view === 'history' && <>{serviceCard('KÖRTID', duration(data.session?.duration_s), 'DEN HÄR SESSIONEN')}{serviceCard('HISTORIK', String(history.samples.length), `AV MAX ${history.max_samples ?? 720} MÄTPUNKTER`)}{serviceCard('KÖRLOGG', data.session?.log_active ? 'AKTIV' : 'VÄNTAR', 'LOKAL · BEGRÄNSAD LAGRING')}{serviceCard('LARMHISTORIK', alerts.length ? `${alerts.length} HÄNDELSE${alerts.length === 1 ? '' : 'R'}` : 'INGA LARM', alerts.length ? alerts.slice(0, 2).map((alert) => `${alert.name} ${text(alert.value, 1)} ${alert.unit}`).join(' · ') : 'INGA VARNINGAR I SESSIONEN')}</>}
 +        {view === 'ecu' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-ANSLUTNING</div><div style={{ marginTop: 10, color: connectionTone, fontSize: 32, fontWeight: 700 }}>{data.status?.toUpperCase() ?? '—'}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16 }}>{ecuConnectionMessage}</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FELKODER · ENDAST LÄSNING</div><div style={{ marginTop: 9, color: data.dtc?.codes?.length ? (hasActiveFault ? '#f4544c' : '#f0c44f') : '#eef3ea', fontSize: 22, lineHeight: 1.15, whiteSpace: 'pre-line' }}>{faultSummary}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 15 }}>{dtcMessage}</div><button type="button" disabled={data.status !== 'Ansluten' || dtcReadBusy} onClick={() => void requestDtcRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{dtcReadBusy ? 'LÄSER…' : 'LÄS FELKODER'}</button></article></>}
 +        {view === 'ecuIdentity' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-IDENTITET · DIAGNOSTIKPROFIL</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 32, fontWeight: 700 }}>{data.ecu_variant ? `${data.ecu_variant} ECU` : 'IDENTIFIERAS…'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.ecu_variant === 'NNN' ? 'NNN-profil bekräftad av pedalram med tre spår och 5 V-referens.' : data.ecu_variant === 'MSB' ? 'MSB-profil bekräftad av den korta pedalramen.' : 'Väntar på ett komplett pedalsvar från ECU:n.'}</div><div style={{ marginTop: 8, color: '#899088', fontSize: 15, lineHeight: 1.3 }}>Detta identifierar diagnosfamiljen, inte ett verifierat reservdels- eller serienummer.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-KONFIGURATION · 21 3D</div><div style={{ marginTop: 10, color: data.feature_configuration?.raw ? '#eef3ea' : '#f0c44f', fontSize: 19, fontWeight: 700, lineHeight: 1.25, overflowWrap: 'anywhere' }}>{data.feature_configuration?.raw || (data.feature_configuration?.pending ? 'LÄSER KONFIGURATION…' : 'INTE LÄST ÄNNU')}</div><div style={{ marginTop: 9, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>Rått, skrivskyddat konfigurationsblock. Det används inte som injektorkod eller serienummer.</div><button type="button" disabled={data.status !== 'Ansluten' || identityReadBusy} onClick={() => void requestIdentityRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{identityReadBusy ? 'LÄSER…' : 'LÄS ECU-KONFIGURATION'}</button></article></>}
-+        {view === 'abs' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ABS · DIAGNOSTIKSTATUS</div><div style={{ marginTop: 10, color: data.abs?.engine_kline_ready ? '#eef3ea' : '#f0c44f', fontSize: 29, fontWeight: 700 }}>{data.abs?.state?.toUpperCase() ?? 'VÄNTAR PÅ STATUS'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.abs?.detail ?? 'ABS-information är inte tillgänglig ännu.'}</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FRAMTIDA ABS-SERVICE</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 22, fontWeight: 700 }}>INGA AKTUATORER AKTIVA</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>ABS-luftning och pump-/ventiltester kräver Defender-specifik protokollvalidering. Den här sidan är endast läsande.</div></article></>}
++        {view === 'abs' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ABS · WABCO D · ENDAST LÄSNING</div><div style={{ marginTop: 10, color: data.abs?.engine_kline_ready ? '#eef3ea' : '#f0c44f', fontSize: 29, fontWeight: 700 }}>{data.abs?.state?.toUpperCase() ?? 'VÄNTAR PÅ STATUS'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.abs?.detail ?? 'ABS-information är inte tillgänglig ännu.'}</div><button type="button" disabled={data.status !== 'Ansluten' || data.abs?.stationary === false || absReadBusy || data.abs?.fault_memory?.pending} onClick={() => void requestAbsDtcRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' && data.abs?.stationary !== false ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' && data.abs?.stationary !== false ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{absReadBusy || data.abs?.fault_memory?.pending ? 'LÄSER ABS-FELKODER…' : 'LÄS ABS-FELKODER'}</button><div style={{ marginTop: 9, color: '#899088', fontSize: 15, lineHeight: 1.25 }}>Fordonet måste stå stilla. Td5 livevärden pausas kort under den säkra avläsningen.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FELKODSMINNE</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 19, fontWeight: 700, lineHeight: 1.3, whiteSpace: 'pre-line' }}>{data.abs?.fault_memory?.pending ? 'VÄNTAR PÅ ABS-SVAR…' : data.abs?.fault_memory?.error ? `KUNDE INTE LÄSA · ${data.abs.fault_memory.error}` : data.abs?.fault_memory?.updated_at ? [`LAGRADE: ${data.abs.fault_memory.stored?.length ? data.abs.fault_memory.stored.map((fault) => `${fault.code} · ${fault.description}`).join('\n') : 'inga'}`, `AKTIVA: ${data.abs.fault_memory.current?.length ? data.abs.fault_memory.current.map((fault) => `${fault.code} · ${fault.description}`).join('\n') : 'inga'}`].join('\n\n') : 'INTE LÄST ÄNNU'}</div><div style={{ marginTop: 9, color: '#899088', fontSize: 15, lineHeight: 1.25 }}>Rensning, pump-/ventiltest och luftning är medvetet inte tillgängliga i denna vy.</div></article></>}
 +        {view === 'injectorId' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>INJEKTOR-ID · ECU-KONFIGURATION</div><div style={{ marginTop: 10, color: '#f0c44f', fontSize: 28, fontWeight: 700 }}>INGEN VERIFIERAD LÄSMETOD ÄNNU</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>Td5:s funktionsblock 21 3D innehåller inte bekräftade injektorkoder. Femteckenskod och idle-nummer visas först när en separat, verifierad läsmetod har hittats.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>VAD SOM BEHÖVS</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 23, fontWeight: 700 }}>EN SEPARAT, VALIDERAD SETTINGS-LÄSNING</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>Ingen inställning eller injektorkod kommer att skrivas från denna dashboard.</div></article></>}
 +        {view === 'turboHealth' && <article style={{ gridColumn: '1 / -1', gridRow: '1 / -1', minWidth: 0, padding: 12, border: '1px solid #ffffff18', borderRadius: 17, background: '#101412', display: 'grid', gap: 8, alignContent: 'center' }}><div style={{ padding: '2px 6px 5px', color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>TURBO HEALTH · SENASTE 2 MIN</div>{trend('MAP', samples.map((sample) => sample.map_kpa), '#f0c44f', `${text(data.map_kpa)} kPa`)}{trend('WASTEGATE', samples.map((sample) => sample.wastegate_percent), '#b8d699', `${text(data.wastegate_percent)} %`)}{trend('MAF', samples.map((sample) => sample.maf_kg_h), '#eef3ea', `${text(data.maf_kg_h)} kg/h`)}</article>}
 +        {view === 'injectorTrend' && Array.from({ length: 5 }, (_, index) => { const values = samples.map((sample) => sample.injector_balance?.[index]); return <article key={index} style={{ minWidth: 0, padding: '15px 16px', border: '1px solid #ffffff18', borderRadius: 16, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>INJ {index + 1}</div><div style={{ marginTop: 8, fontSize: 38, fontWeight: 700 }}>{text(data.injector_balance?.[index])}</div><div style={{ marginTop: 6, color: '#aeb7ae', fontSize: 15 }}>ECU RAW · TREND</div><svg viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: '100%', height: 35, marginTop: 7 }}><polyline fill="none" stroke="#b8d699" strokeWidth="2.5" points={linePoints(values)} /></svg></article>})}

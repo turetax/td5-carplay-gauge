@@ -297,6 +297,106 @@ class Td5Protocol:
         self.transact("keep_alive")
 
 
+class WabcoDProtocol(Td5Protocol):
+    """Read-only WABCO D ABS diagnostic profile.
+
+    The profile is based on the published Discovery 2 SLABS capture: fast-init
+    address 0x29 followed by local identifiers 0x11 (stored) and 0x47
+    (current).  Defender 1999--2003 and Discovery 2 use the WABCO D family,
+    but this class deliberately exposes *only* read requests.  No clear,
+    routine, pump, valve, or bleed command exists here.
+    """
+
+    TARGET_ADDRESS = 0x29
+    TESTER_ADDRESS = 0xF1
+    # discovery2-diag's verified WABCO D capture uses the functional fast-init
+    # form first (C1 29 F1 81). The physical F7 form did not answer on this
+    # Defender, so do not keep re-sending it as the default.
+    INIT_REQUEST = bytes((0xC1, TARGET_ADDRESS, TESTER_ADDRESS, 0x81))
+    SESSION_CONFIRM = bytes((0x02, 0x1A, 0x8A))
+    STORED_FAULTS = bytes((0x02, 0x21, 0x11))
+    CURRENT_FAULTS = bytes((0x02, 0x21, 0x47))
+
+    # Two anchor points are confirmed by the capture used by discovery2-diag.
+    # Any other bit is kept as an exact raw position instead of being guessed.
+    KNOWN_FAULT_BITS = {
+        (3, 4): ("020", "Höger främre hjulhastighetssensor · signal för låg"),
+        (10, 4): ("027", "Shuttle valve switch · elektriskt fel"),
+    }
+
+    def _raw_request(self, name: str, request: bytes, *, delay_ms: int = 100) -> bytes:
+        """Send one checksummed KWP frame and return the full reply burst.
+
+        Fast-init's C1 reply is intentionally checked as a presence marker;
+        cheap K-line adapters can damage its checksum.  The two fault blocks
+        below still go through :meth:`transact_variable` and must have a valid
+        KWP checksum before they are decoded.
+        """
+        frame = request + bytes((self.checksum(request),))
+        self.transport.reset_input()
+        for byte in frame:
+            self.transport.write_byte(byte)
+            time.sleep(0.005)
+        time.sleep(delay_ms / 1000)
+        raw = bytearray()
+        deadline = time.monotonic() + 0.45
+        while time.monotonic() < deadline:
+            received = self.transport.read(64)
+            if received:
+                raw.extend(received)
+            elif raw:
+                break
+            else:
+                time.sleep(0.002)
+        reply = bytes(raw[len(frame):]) if raw.startswith(frame) else bytes(raw)
+        if not reply:
+            raise RuntimeError(f"{name}: inget svar")
+        return reply
+
+    def connect(self) -> None:
+        self.fast_init()
+        reply = self._raw_request("ABS init", self.INIT_REQUEST, delay_ms=80)
+        # The proven WABCO D/SLABS init responds with a C1 start-communication
+        # marker.  Do not interpret any other byte sequence as an ABS session.
+        if 0xC1 not in reply:
+            raise RuntimeError(f"ABS init: oväntat svar ({reply.hex(' ')})")
+        confirmation = self.transact_variable("ABS sessionbekräftelse", self.SESSION_CONFIRM, 150)
+        if len(confirmation) < 3 or confirmation[1:3] != bytes((0x5A, 0x8A)):
+            raise RuntimeError(f"ABS sessionbekräftelse: oväntat svar ({confirmation.hex(' ')})")
+
+    @classmethod
+    def decode_fault_block(cls, block: bytes) -> list[dict]:
+        faults: list[dict] = []
+        for byte_index, value in enumerate(block[:16]):
+            for bit in range(8):
+                if not value & (1 << bit):
+                    continue
+                code, description = cls.KNOWN_FAULT_BITS.get(
+                    (byte_index, bit),
+                    (f"BIT-{byte_index + 1:02d}-{bit + 1:02d}", "Okänd WABCO D-felkodsbit"),
+                )
+                faults.append({"code": code, "description": description, "byte": byte_index, "bit": bit})
+        return faults
+
+    def read_faults(self) -> dict:
+        stored = self.transact_variable("ABS lagrade felkoder", self.STORED_FAULTS, 100)
+        current = self.transact_variable("ABS aktiva felkoder", self.CURRENT_FAULTS, 100)
+        def block(response: bytes, lid: int) -> bytes:
+            if len(response) < 4 or response[1:3] != bytes((0x61, lid)):
+                raise RuntimeError(f"ABS felkoder {lid:02X}: oväntat svar ({response.hex(' ')})")
+            payload = response[3:-1]
+            if len(payload) < 16:
+                raise RuntimeError(f"ABS felkoder {lid:02X}: för kort svar ({response.hex(' ')})")
+            return payload[:16]
+        stored_block, current_block = block(stored, 0x11), block(current, 0x47)
+        return {
+            "stored": self.decode_fault_block(stored_block),
+            "current": self.decode_fault_block(current_block),
+            "stored_raw": stored_block.hex(" ").upper(),
+            "current_raw": current_block.hex(" ").upper(),
+        }
+
+
 class Service:
     def __init__(self, port: str | None, simulate: bool, fast_init_mode: str = "break-condition"):
         self.data = GaugeData(status="Simulerar" if simulate else "Startar")
@@ -328,6 +428,11 @@ class Service:
         self.feature_config_updated_at = 0.0
         self.feature_config_error = "Inte läst ännu"
         self.feature_config_requested = False
+        self.abs_dtcs: dict[str, list[dict]] = {"stored": [], "current": []}
+        self.abs_raw: dict[str, str] = {"stored": "", "current": ""}
+        self.abs_updated_at = 0.0
+        self.abs_error = "Inte läst ännu"
+        self.abs_pending = False
         self.log_dir = Path.home() / ".local" / "share" / "td5gauge" / "logs"
         self.profile_dir = self.log_dir / "profiles"
         self.last_profile_path = ""
@@ -653,27 +758,55 @@ class Service:
         with self.lock:
             self.feature_config_requested = True
 
-    def abs_snapshot(self) -> dict:
-        """Report ABS diagnostic readiness without transmitting to the ABS ECU.
+    def request_abs_dtc_read(self) -> bool:
+        """Queue one stationary, read-only WABCO D fault-memory read.
 
-        The 1999 Defender wiring routes both the engine ECU and WABCO D ABS ECU
-        to OBD pin 7.  The exact WABCO address and read identifiers have not yet
-        been validated for this adapter, so this deliberately reports readiness
-        rather than guessing a request frame on a brake controller.
+        A WABCO D session has to take exclusive ownership of the shared K-line,
+        so this is intentionally an explicit POST action rather than background
+        polling.  It is unavailable while the vehicle is moving.
         """
         with self.lock:
+            if self.data.status != "Ansluten":
+                self.abs_error = "Anslut Td5 ECU och slå på tändningen först."
+                return False
+            if (self.data.speed_kmh or 0) > 0:
+                self.abs_error = "Stanna fordonet innan ABS-felkoder läses."
+                return False
+            if self.abs_pending:
+                return False
+            self.abs_pending = True
+            self.abs_error = ""
+            return True
+
+    def abs_snapshot(self) -> dict:
+        """Return WABCO D read-only status and the last validated fault read."""
+        with self.lock:
             engine_status = self.data.status
+            speed = self.data.speed_kmh
+            fault_memory = {
+                "stored": list(self.abs_dtcs["stored"]),
+                "current": list(self.abs_dtcs["current"]),
+                "stored_raw": self.abs_raw["stored"],
+                "current_raw": self.abs_raw["current"],
+                "updated_at": self.abs_updated_at,
+                "error": self.abs_error,
+                "pending": self.abs_pending,
+            }
         connected = engine_status == "Ansluten"
         return {
             "expected_controller": "WABCO D ABS · Defender 1999–2003",
             "transport": "Delad K-line · OBD pin 7",
             "engine_kline_ready": connected,
-            "state": "Redo för verifierad ABS-profil" if connected else "Väntar på K-line och tändning",
+            "state": "Läser ABS-felkoder" if fault_memory["pending"] else ("Redo för ABS-felkodsläsning" if connected else "Väntar på K-line och tändning"),
             "detail": (
-                "Motor-ECU svarar på K-line. ABS-protokollet är ännu inte validerat."
+                "Kopplar till WABCO D. Td5 livevärden pausas tillfälligt."
+                if fault_memory["pending"] else
+                "Endast läsning. Fordonet måste stå stilla; inga ABS-utgångar, luftning eller rensning kan köras här."
                 if connected else "Anslut K-line-adaptern och slå på tändningen."
             ),
             "read_only": True,
+            "stationary": (speed or 0) == 0,
+            "fault_memory": fault_memory,
         }
 
     def _read_dtcs(self, connection: Td5Protocol) -> None:
@@ -702,6 +835,39 @@ class Service:
             with self.lock:
                 self.feature_config_error = str(exc)
                 self.feature_config_requested = False
+
+    def _read_abs_dtcs(self) -> None:
+        """Use the K-line exclusively for a WABCO D *read* then release it.
+
+        The Discovery 2 WABCO D reference capture requires a quiet bus before
+        fast init.  During that time no Td5 keepalive/poll is sent.  The engine
+        session is recreated by the outer loop once this method returns.
+        """
+        connection: WabcoDProtocol | None = None
+        try:
+            # Let the old Td5 diagnostic link expire before addressing the ABS.
+            # This is deliberately a single attempt, not a rapid retry loop.
+            time.sleep(28)
+            connection = WabcoDProtocol(self.port, self.fast_init_mode)
+            connection.connect()
+            result = connection.read_faults()
+            with self.lock:
+                self.abs_dtcs = {"stored": result["stored"], "current": result["current"]}
+                self.abs_raw = {"stored": result["stored_raw"], "current": result["current_raw"]}
+                self.abs_updated_at = time.time()
+                self.abs_error = ""
+        except Exception as exc:
+            with self.lock:
+                self.abs_error = self._connection_error_text(exc)
+        finally:
+            if connection:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+            with self.lock:
+                self.abs_pending = False
+            self._save_readonly_profile()
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -774,6 +940,7 @@ class Service:
                         self.data.updated_at = time.time()
                         read_requested = self.dtc_requested
                         feature_config_read_requested = self.feature_config_requested
+                        abs_read_requested = self.abs_pending
                     if read_requested:
                         self._read_dtcs(connection)
                     if feature_config_read_requested:
@@ -782,6 +949,14 @@ class Service:
                     if not profile_saved:
                         self._save_readonly_profile()
                         profile_saved = True
+                    if abs_read_requested:
+                        # Release the engine serial handle before the deliberate
+                        # WABCO D quiet period. The outer loop immediately opens
+                        # a new Td5 session after the read is complete.
+                        connection.close()
+                        connection = None
+                        self._read_abs_dtcs()
+                        break
             except Exception as exc:
                 with self.lock:
                     self.data.status, self.data.detail = "Frånkopplad", self._connection_error_text(exc)
@@ -859,6 +1034,23 @@ def handler_factory(service: Service) -> type[BaseHTTPRequestHandler]:
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if request_path == "/api/abs/faults/read":
+                # A manual stationary diagnostic action. It only sends the
+                # documented WABCO D session/read identifiers and has no clear,
+                # actuator, routine or bleed implementation.
+                if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                    self.send_error(HTTPStatus.FORBIDDEN)
+                    return
+                accepted = service.request_abs_dtc_read()
+                body = json.dumps({"accepted": accepted, "mode": "read-only", "stationary_required": True}).encode()
+                self.send_response(HTTPStatus.ACCEPTED if accepted else HTTPStatus.CONFLICT)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)

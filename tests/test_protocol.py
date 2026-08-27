@@ -1,5 +1,5 @@
 import unittest
-from td5gauge import Td5Protocol
+from td5gauge import Td5Protocol, WabcoDProtocol
 
 
 class ProtocolTests(unittest.TestCase):
@@ -15,6 +15,14 @@ class ProtocolTests(unittest.TestCase):
     def test_seed_key_is_deterministic(self):
         seed = bytes((0, 0, 0, 0x12, 0x34, 0))
         self.assertEqual(Td5Protocol.keygen(seed), Td5Protocol.keygen(seed))
+
+    def test_wabco_fault_decoder_keeps_unknown_bits_explicit(self):
+        block = bytearray(16)
+        block[0] = 1
+        block[3] = 1 << 4
+        faults = WabcoDProtocol.decode_fault_block(bytes(block))
+        self.assertEqual(faults[0]["code"], "BIT-01-01")
+        self.assertEqual(faults[1]["code"], "020")
 
 if __name__ == "__main__":
     unittest.main()
