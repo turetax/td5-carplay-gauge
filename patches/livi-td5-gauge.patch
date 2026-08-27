@@ -85,7 +85,7 @@ index 906cabf..a740ec9 100644
      </Box>
    )
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..634dca3 100644
+index 2304492..280a083 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
@@ -295,7 +295,7 @@ index 2304492..634dca3 100644
      </article>
    )
 
-@@ -142,50 +256,74 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +256,88 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
@@ -337,7 +337,21 @@ index 2304492..634dca3 100644
          </article>
 -      </main> : <main style={{ marginTop: coolantCritical ? 52 : 0, marginLeft: 68, display: 'grid', gridTemplateColumns: view === 'injectors' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gridTemplateRows: view === 'injectors' ? 'repeat(2,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gap: 10, minHeight: 0 }}>
 -        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(data.boost_kpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
-+      </main> : <main style={{ marginTop: coolantCritical ? 60 : 0, marginLeft: 90, display: 'grid', gridTemplateColumns: view === 'injectors' || view === 'injectorTrend' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gridTemplateRows: view === 'injectors' || view === 'injectorTrend' ? 'repeat(2,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gap: 10, minHeight: 0, overflow: 'hidden' }}>
++      </main> : <main
++        style={{
++          marginTop: coolantCritical ? 60 : 0,
++          marginLeft: 90,
++          display: 'grid',
++          gridTemplateColumns: view === 'injectors' || view === 'injectorTrend' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
++          gridTemplateRows: view === 'ecu' ? 'auto auto' : 'repeat(2,minmax(0,1fr))',
++          gap: 10,
++          minHeight: 0,
++          overflowX: 'hidden',
++          overflowY: view === 'ecu' ? 'auto' : 'hidden',
++          paddingRight: view === 'ecu' ? 6 : 0,
++          touchAction: view === 'ecu' ? 'pan-y' : 'auto',
++        }}
++      >
 +        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(boostKpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
          {view === 'charging' && <>{metric('ALTERNATOR', text(data.voltage_v, 1), 'V', alternatorTone(data.voltage_v, engineRunning))}{metric('FUEL TEMP', text(data.fuel_c), '°C', warningTone(data.fuel_c, 75, 85))}</>}
          {view === 'air' && <>{metric('INLET AIR', text(data.air_c), '°C', warningTone(data.air_c, 65, 80))}{metric('MAF', text(data.maf_kg_h), 'kg/h')}{metric('MAP · ABSOLUT', text(data.map_kpa), 'kPa', warningTone(data.map_kpa, 230, 240))}</>}
