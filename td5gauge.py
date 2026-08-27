@@ -208,16 +208,16 @@ class Td5Protocol:
             faults.append({"code": f"{group}-{sub}", "state": state, "description": description, "counter": counter})
         return faults, payload.hex(" ").upper()
 
-    def read_injector_configuration(self) -> str:
-        """Read Td5 local identifier 0x3D without modifying injector settings.
+    def read_feature_configuration(self) -> str:
+        """Read the Td5 0x3D feature/configuration block without changing settings.
 
-        The returned configuration block is retained verbatim until its byte-level
-        injector-code mapping has been validated against the physical injector
-        labels.  Showing raw bytes is safer than guessing a five-character code.
+        `21 3D` is not an established injector-code read. Store its raw bytes as
+        ECU feature configuration until each flag has been mapped by differential
+        testing. This must never be presented as injector classification data.
         """
-        response = self.transact_variable("injektor-konfiguration", bytes((0x02, 0x21, 0x3D)))
+        response = self.transact_variable("funktionskonfiguration", bytes((0x02, 0x21, 0x3D)))
         if len(response) < 4 or response[1:3] != bytes((0x61, 0x3D)):
-            raise RuntimeError(f"injektor-konfiguration: oväntat svar ({response.hex(' ')})")
+            raise RuntimeError(f"funktionskonfiguration: oväntat svar ({response.hex(' ')})")
         return response[3:-1].hex(" ").upper()
 
     def connect(self) -> None:
@@ -291,12 +291,10 @@ class Service:
         # Keep them user-requested after the initial connection check instead of
         # injecting a diagnostic frame into the live polling loop every 30 seconds.
         self.dtc_requested = False
-        self.injector_config_raw = ""
-        self.injector_config_updated_at = 0.0
-        self.injector_config_error = "Inte läst ännu"
-        # This queues one read-only local-identifier request on the existing
-        # engine ECU session. It is never an injector programming operation.
-        self.injector_config_requested = False
+        self.feature_config_raw = ""
+        self.feature_config_updated_at = 0.0
+        self.feature_config_error = "Inte läst ännu"
+        self.feature_config_requested = False
         self.log_dir = Path.home() / ".local" / "share" / "td5gauge" / "logs"
         self.profile_dir = self.log_dir / "profiles"
         self.last_profile_path = ""
@@ -499,7 +497,7 @@ class Service:
                     for key in LIVE_FIELDS
                 },
                 "faults": report["dtc"],
-                "injector_configuration": report["injector_configuration"],
+                "feature_configuration": report["feature_configuration"],
             },
             "abs": report["abs"],
             "limitations": [
@@ -527,10 +525,10 @@ class Service:
         with self.lock:
             self.dtc_requested = True
 
-    def request_injector_config_read(self) -> None:
-        """Queue one read-only injector configuration read on the existing session."""
+    def request_feature_config_read(self) -> None:
+        """Queue one read-only Td5 feature/configuration block read."""
         with self.lock:
-            self.injector_config_requested = True
+            self.feature_config_requested = True
 
     def abs_snapshot(self) -> dict:
         """Report ABS diagnostic readiness without transmitting to the ABS ECU.
@@ -568,19 +566,19 @@ class Service:
                 self.dtc_error = str(exc)
                 self.dtc_requested = False
 
-    def _read_injector_configuration(self, connection: Td5Protocol) -> None:
+    def _read_feature_configuration(self, connection: Td5Protocol) -> None:
         try:
-            raw = connection.read_injector_configuration()
+            raw = connection.read_feature_configuration()
             with self.lock:
-                self.injector_config_raw = raw
-                self.injector_config_updated_at = time.time()
-                self.injector_config_error = ""
-                self.injector_config_requested = False
+                self.feature_config_raw = raw
+                self.feature_config_updated_at = time.time()
+                self.feature_config_error = ""
+                self.feature_config_requested = False
             self._save_readonly_profile()
         except Exception as exc:
             with self.lock:
-                self.injector_config_error = str(exc)
-                self.injector_config_requested = False
+                self.feature_config_error = str(exc)
+                self.feature_config_requested = False
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -590,11 +588,11 @@ class Service:
             active_alerts = list(self.active_alerts.values())
             alert_history = list(self.alert_history)
             dtc = {"codes": list(self.dtcs), "raw": self.dtc_raw, "updated_at": self.dtc_updated_at, "error": self.dtc_error, "pending": self.dtc_requested}
-            injector_configuration = {
-                "raw": self.injector_config_raw,
-                "updated_at": self.injector_config_updated_at,
-                "error": self.injector_config_error,
-                "pending": self.injector_config_requested,
+            feature_configuration = {
+                "raw": self.feature_config_raw,
+                "updated_at": self.feature_config_updated_at,
+                "error": self.feature_config_error,
+                "pending": self.feature_config_requested,
                 "read_only": True,
             }
         result["age_s"] = round(time.time() - result["updated_at"], 1) if result["updated_at"] else None
@@ -607,7 +605,7 @@ class Service:
             "alerts": {"active": active_alerts, "history": alert_history},
         }
         result["dtc"] = dtc
-        result["injector_configuration"] = injector_configuration
+        result["feature_configuration"] = feature_configuration
         result["abs"] = self.abs_snapshot()
         result["signals"] = SIGNALS
         result["profile"] = {
@@ -647,11 +645,11 @@ class Service:
                             setattr(self.data, field, getattr(sample, field))
                         self.data.updated_at = time.time()
                         read_requested = self.dtc_requested
-                        injector_config_read_requested = self.injector_config_requested
+                        feature_config_read_requested = self.feature_config_requested
                     if read_requested:
                         self._read_dtcs(connection)
-                    if injector_config_read_requested:
-                        self._read_injector_configuration(connection)
+                    if feature_config_read_requested:
+                        self._read_feature_configuration(connection)
                     self._record_sample()
                     if not profile_saved:
                         self._save_readonly_profile()
@@ -753,14 +751,13 @@ def handler_factory(service: Service) -> type[BaseHTTPRequestHandler]:
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if request_path == "/api/injectors/config/read":
-                # This endpoint intentionally only queues local identifier 0x3D.
-                # It never transmits injector programming, security access or a
-                # fault-clear command. Keep it loopback-only like DTC reads.
+            if request_path == "/api/feature-config/read":
+                # This endpoint only queues local identifier 0x3D. The returned
+                # feature/config block is read-only; it is not injector coding.
                 if self.client_address[0] not in {"127.0.0.1", "::1"}:
                     self.send_error(HTTPStatus.FORBIDDEN)
                     return
-                service.request_injector_config_read()
+                service.request_feature_config_read()
                 body = b'{"accepted":true,"mode":"read-only"}'
                 self.send_response(HTTPStatus.ACCEPTED)
                 self.send_header("Content-Type", "application/json")
