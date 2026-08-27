@@ -32,10 +32,14 @@ LOG_RETENTION_DAYS = 7
 LOG_MAX_BYTES = 25 * 1024 * 1024
 PROFILE_RETENTION_COUNT = 10
 CRITICAL_ALERT_LATCH_SECONDS = 8
+FUEL_DENSITY_KG_PER_L = 0.832
+FUEL_WINDOW_TARGET_KM = 100.0
+FUEL_WINDOW_RETAIN_KM = 120.0
 LIVE_FIELDS = (
     "rpm", "speed_kmh", "voltage_v", "coolant_c", "air_c", "fuel_c",
     "map_kpa", "aap_kpa", "maf_kg_h", "wastegate_percent", "throttle_1",
-    "injector_balance",
+    "throttle_2", "throttle_3", "throttle_supply_v", "driver_fuel_demand_mg",
+    "fuel_injected_mg", "idle_fuel_demand_mg", "injector_balance",
 )
 
 
@@ -55,6 +59,12 @@ class GaugeData:
     maf_kg_h: float | None = None
     wastegate_percent: float | None = None
     throttle_1: float | None = None
+    throttle_2: float | None = None
+    throttle_3: float | None = None
+    throttle_supply_v: float | None = None
+    driver_fuel_demand_mg: float | None = None
+    fuel_injected_mg: float | None = None
+    idle_fuel_demand_mg: float | None = None
     injector_balance: list[float] | None = None
 
 
@@ -70,6 +80,7 @@ class Td5Protocol:
         "voltage": (bytes((0x02, 0x21, 0x10)), 8, 50),
         "temps": (bytes((0x02, 0x21, 0x1A)), 20, 100),
         "speed": (bytes((0x02, 0x21, 0x0D)), 5, 50),
+        "fuel": (bytes((0x02, 0x21, 0x1D)), 22, 100),
         "pressure": (bytes((0x02, 0x21, 0x23)), 8, 50),
         "maf_map": (bytes((0x02, 0x21, 0x1C)), 12, 50),
         "injectors": (bytes((0x02, 0x21, 0x40)), 14, 50),
@@ -251,6 +262,10 @@ class Td5Protocol:
         data.fuel_c = self.s16(temps, 16) / 10 - 273
         speed = self.transact("speed")
         data.speed_kmh = speed[3]
+        fuel = self.transact("fuel")
+        data.driver_fuel_demand_mg = self.s16(fuel, 4) / 100
+        data.fuel_injected_mg = self.s16(fuel, 10) / 100
+        data.idle_fuel_demand_mg = self.s16(fuel, 18) / 100
         pressure = self.transact("pressure")
         data.map_kpa = self.u16(pressure, 4) / 100
         data.aap_kpa = self.u16(pressure, 6) / 100
@@ -265,6 +280,13 @@ class Td5Protocol:
             self.nnn = not self.nnn
             throttle = self.transact("throttle_nnn" if self.nnn else "throttle_msb")
         data.throttle_1 = self.u16(throttle, 4) / 1000
+        data.throttle_2 = self.u16(throttle, 6) / 1000
+        if self.nnn and len(throttle) >= 12:
+            data.throttle_3 = self.u16(throttle, 8) / 1000
+            data.throttle_supply_v = self.u16(throttle, 12) / 1000
+        else:
+            data.throttle_3 = None
+            data.throttle_supply_v = None
         wastegate = self.transact("wastegate")
         data.wastegate_percent = self.u16(wastegate, 4) / 1000
         self.transact("keep_alive")
@@ -278,6 +300,12 @@ class Service:
         self.started_at = time.time()
         self.history: deque[dict] = deque(maxlen=720)  # Twelve minutes at one sample/second.
         self.last_recorded_at = 0.0
+        self.fuel_window: deque[dict[str, float]] = deque()
+        self.fuel_bucket = {"distance_km": 0.0, "fuel_l": 0.0}
+        self.last_fuel_sample: tuple[float, float, float] | None = None
+        self.fuel_window_path = Path.home() / ".local" / "share" / "td5gauge" / "fuel-window.json"
+        self.last_fuel_window_save_at = 0.0
+        self._load_fuel_window()
         self.peaks = {"coolant_c": None, "boost_kpa": None, "rpm": None}
         self.ranges = {"voltage_v": [None, None]}
         self.alert_history: deque[dict] = deque(maxlen=20)
@@ -335,8 +363,10 @@ class Service:
         payload["engine_on"] = bool((payload["rpm"] or 0) >= 400)
         sample = {key: payload.get(key) for key in (
             "updated_at", "rpm", "speed_kmh", "voltage_v", "coolant_c", "air_c", "fuel_c",
-            "map_kpa", "aap_kpa", "boost_kpa", "maf_kg_h", "wastegate_percent", "throttle_1", "injector_balance", "engine_on",
+            "map_kpa", "aap_kpa", "boost_kpa", "maf_kg_h", "wastegate_percent", "throttle_1", "throttle_2", "throttle_3", "throttle_supply_v",
+            "driver_fuel_demand_mg", "fuel_injected_mg", "idle_fuel_demand_mg", "injector_balance", "engine_on",
         )}
+        self._update_fuel_window(sample)
         with self.lock:
             self.history.append(sample)
             self._evaluate_alerts(sample)
@@ -350,6 +380,89 @@ class Service:
                 self.ranges["voltage_v"] = [voltage if low is None else min(low, voltage), voltage if high is None else max(high, voltage)]
         if not self.simulate:
             self._append_csv(sample)
+
+    def _load_fuel_window(self) -> None:
+        """Restore only compact distance/fuel buckets; never retain raw ECU frames."""
+        try:
+            payload = json.loads(self.fuel_window_path.read_text(encoding="utf-8"))
+            for bucket in payload.get("buckets", []):
+                distance = float(bucket["distance_km"])
+                fuel = float(bucket["fuel_l"])
+                if 0 < distance <= 1 and 0 <= fuel <= 2:
+                    self.fuel_window.append({"distance_km": distance, "fuel_l": fuel})
+            self._trim_fuel_window()
+        except (OSError, ValueError, KeyError, TypeError):
+            return
+
+    def _save_fuel_window(self) -> None:
+        if self.simulate:
+            return
+        try:
+            self.fuel_window_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"format": "td5gauge.fuel-window.v1", "buckets": list(self.fuel_window)}
+            temporary = self.fuel_window_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+            temporary.replace(self.fuel_window_path)
+            self.last_fuel_window_save_at = time.time()
+        except OSError:
+            return
+
+    def _trim_fuel_window(self) -> None:
+        total = sum(bucket["distance_km"] for bucket in self.fuel_window)
+        while self.fuel_window and total > FUEL_WINDOW_RETAIN_KM:
+            total -= self.fuel_window.popleft()["distance_km"]
+
+    @staticmethod
+    def _fuel_rate_lph(rpm: float | None, injected_mg: float | None) -> float | None:
+        if rpm is None or injected_mg is None or rpm < 300 or injected_mg < 0:
+            return None
+        # Five cylinders, four-stroke: 2.5 injections per crank revolution.
+        return injected_mg * rpm * 2.5 * 60 / 1_000_000 / FUEL_DENSITY_KG_PER_L
+
+    def _update_fuel_window(self, sample: dict) -> None:
+        timestamp = self._number(sample.get("updated_at"))
+        speed = self._number(sample.get("speed_kmh"))
+        rate = self._fuel_rate_lph(self._number(sample.get("rpm")), self._number(sample.get("fuel_injected_mg")))
+        if timestamp is None or speed is None or rate is None:
+            return
+        previous = self.last_fuel_sample
+        self.last_fuel_sample = (timestamp, speed, rate)
+        if previous is None:
+            return
+        previous_time, previous_speed, previous_rate = previous
+        elapsed = timestamp - previous_time
+        if not 0 < elapsed <= 10:
+            return
+        distance = max(0.0, (previous_speed + speed) * elapsed / 7_200)
+        fuel = max(0.0, (previous_rate + rate) * elapsed / 7_200)
+        if distance <= 0:
+            return
+        self.fuel_bucket["distance_km"] += distance
+        self.fuel_bucket["fuel_l"] += fuel
+        if self.fuel_bucket["distance_km"] >= 0.1:
+            self.fuel_window.append(dict(self.fuel_bucket))
+            self.fuel_bucket = {"distance_km": 0.0, "fuel_l": 0.0}
+            self._trim_fuel_window()
+        if time.time() - self.last_fuel_window_save_at >= 30:
+            self._save_fuel_window()
+
+    def _rolling_consumption(self) -> dict:
+        remaining = FUEL_WINDOW_TARGET_KM
+        distance = fuel = 0.0
+        for bucket in reversed(self.fuel_window):
+            take = min(remaining, bucket["distance_km"])
+            if take <= 0:
+                continue
+            distance += take
+            fuel += bucket["fuel_l"] * take / bucket["distance_km"]
+            remaining -= take
+            if remaining <= 0:
+                break
+        return {
+            "target_km": FUEL_WINDOW_TARGET_KM,
+            "distance_km": round(distance, 1),
+            "l_per_100km": round(fuel / distance * 100, 1) if distance >= FUEL_WINDOW_TARGET_KM else None,
+        }
 
     def _evaluate_alerts(self, sample: dict) -> None:
         """Record warning intervals; this is read-only and never modifies the ECU."""
@@ -606,6 +719,11 @@ class Service:
         }
         result["dtc"] = dtc
         result["feature_configuration"] = feature_configuration
+        consumption = self._rolling_consumption()
+        consumption["current_lph"] = self._fuel_rate_lph(
+            self._number(result.get("rpm")), self._number(result.get("fuel_injected_mg"))
+        )
+        result["consumption"] = consumption
         result["abs"] = self.abs_snapshot()
         result["signals"] = SIGNALS
         result["profile"] = {
