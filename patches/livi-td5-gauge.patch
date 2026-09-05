@@ -1,5 +1,37 @@
+diff --git a/src/main/index.ts b/src/main/index.ts
+index f035245..ef5c19d 100644
+--- a/src/main/index.ts
++++ b/src/main/index.ts
+@@ -6,6 +6,7 @@ import { setupAppIdentity } from '@main/app/init'
+ import { setupLifecycle } from '@main/app/lifecycle'
+ 
+ installMainProcessErrorHandlers()
++console.log(`[startup] Electron main entered (${Math.round(process.uptime() * 1000)} ms)`)
+ 
+ import { setDebugLogging } from '@main/constants'
+ import { registerIpc } from '@main/ipc'
+@@ -60,6 +61,7 @@ if (bootstrapCompositor()) {
+ 
+ app.whenReady().then(async () => {
+   if (!bootAllowed) return
++  console.log(`[startup] Electron ready (${Math.round(process.uptime() * 1000)} ms)`)
+   const projectionService = new ProjectionService()
+   const usbService = new USBService(projectionService)
+   const telemetryStore = new TelemetryStore()
+diff --git a/src/main/window/createWindow.ts b/src/main/window/createWindow.ts
+index 2a53300..2d78a3e 100644
+--- a/src/main/window/createWindow.ts
++++ b/src/main/window/createWindow.ts
+@@ -148,6 +148,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
+ 
+   mainWindow.once('ready-to-show', () => {
+     const win = mainWindow as BrowserWindow
++    console.log(`[startup] main window ready to show (${Math.round(process.uptime() * 1000)} ms)`)
+ 
+     const baseW = savedBounds?.width || runtimeState.config.mainScreenWidth || 1200
+     const baseH = savedBounds?.height || runtimeState.config.mainScreenHeight || 720
 diff --git a/src/renderer/src/App.tsx b/src/renderer/src/App.tsx
-index b99bd60..b9dc69b 100644
+index b99bd60..0e9a5f2 100644
 --- a/src/renderer/src/App.tsx
 +++ b/src/renderer/src/App.tsx
 @@ -38,6 +38,7 @@ function AppInner() {
@@ -9,20 +41,45 @@ index b99bd60..b9dc69b 100644
 +  const [showStartup, setShowStartup] = useState(true)
    const editingField = appContext?.keyboardNavigation?.focusedElId
    const location = useLocation()
-
-@@ -54,6 +55,11 @@ function AppInner() {
-
+ 
+@@ -54,6 +55,36 @@ function AppInner() {
+ 
    const element = useRoutes(appRoutes)
-
+ 
 +  useEffect(() => {
-+    const timer = window.setTimeout(() => setShowStartup(false), 2100)
-+    return () => window.clearTimeout(timer)
++    const startedAt = performance.now()
++    let minimumTimer = 0
++    let fallbackTimer = 0
++    let secondFrame = 0
++
++    // Two animation frames guarantee that React has committed and Chromium has
++    // had a chance to paint the actual cockpit. Keep only a short minimum so
++    // the transition does not flash on a fast machine; never hold the UI for a
++    // fixed multi-second animation.
++    const firstFrame = window.requestAnimationFrame(() => {
++      secondFrame = window.requestAnimationFrame(() => {
++        const elapsed = performance.now() - startedAt
++        minimumTimer = window.setTimeout(() => {
++          window.clearTimeout(fallbackTimer)
++          console.info(`[startup] renderer interactive after ${Math.round(performance.now())} ms`)
++          setShowStartup(false)
++        }, Math.max(0, 350 - elapsed))
++      })
++    })
++
++    fallbackTimer = window.setTimeout(() => setShowStartup(false), 1500)
++    return () => {
++      window.cancelAnimationFrame(firstFrame)
++      window.cancelAnimationFrame(secondFrame)
++      window.clearTimeout(minimumTimer)
++      window.clearTimeout(fallbackTimer)
++    }
 +  }, [])
 +
    const lastInputModeRef = useRef<'keys' | 'pointer' | 'other'>('other')
    const prevPathRef = useRef<string>(location.pathname)
    const cameFromSettingsSubRef = useRef(false)
-@@ -324,6 +330,29 @@ function AppInner() {
+@@ -324,6 +355,29 @@ function AppInner() {
        )}
        <Box sx={{ width: '100%', height: '100%' }}>{element}</Box>
        <SessionSwitchOverlay />
@@ -89,7 +146,7 @@ index 2304492..bdc56b9 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 @@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
-
+ 
  type Td5Live = {
    status?: string
 +  detail?: string
@@ -125,7 +182,7 @@ index 2304492..bdc56b9 100644
 +    fault_memory?: { stored?: AbsFault[]; current?: AbsFault[]; stored_raw?: string; current_raw?: string; updated_at?: number; error?: string; pending?: boolean }
 +  }
  }
-
+ 
 +type Td5Alert = { name: string; value: number; unit: string; level: string; duration_s?: number }
 +type Td5Fault = { code?: string; description?: string; state?: string; counter?: number }
 +type AbsFault = { code?: string; description?: string; byte?: number; bit?: number }
@@ -182,11 +239,11 @@ index 2304492..bdc56b9 100644
 +  if (error.toLowerCase().includes('timeout') || error.toLowerCase().includes('inget svar')) return 'ECU:n svarade inte på felkodsläsningen. Försök igen med tändningen i läge 2.'
 +  return 'Felkoder kunde inte läsas just nu. Kontrollera anslutningen och försök igen.'
 +}
-
+ 
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
 @@ -37,28 +114,19 @@ function warningTone(value: number | null | undefined, warning: number, danger:
-
+ 
  function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
    if (value == null) return '#eef3ea'
 -  if (value > 15 || (engineRunning && value < 13)) return '#f4544c'
@@ -194,7 +251,7 @@ index 2304492..bdc56b9 100644
 +  if (engineRunning && (value < 11.7 || value > 14.7)) return '#f4544c'
    return '#eef3ea'
  }
-
+ 
 -// Deliberately non-linear: the useful Td5 driving range gets more visual
 -// resolution than the seldom-used upper end of the rev range.
 -function rpmBarPercent(value: number | null | undefined) {
@@ -218,13 +275,13 @@ index 2304492..bdc56b9 100644
 +  const [dtcReadBusy, setDtcReadBusy] = useState(false)
 +  const [identityReadBusy, setIdentityReadBusy] = useState(false)
 +  const [absReadBusy, setAbsReadBusy] = useState(false)
-
+ 
    useEffect(() => {
      if (!visible) return
 @@ -80,13 +148,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
-
+ 
 +  useEffect(() => {
 +    if (!visible) return
 +    let alive = true
@@ -262,12 +319,12 @@ index 2304492..bdc56b9 100644
 +    : data.consumption?.provisional_l_per_100km != null
 +      ? `l/mil · ${text(data.consumption.distance_km, 1)} / ${text(data.consumption.target_km, 0)} km`
 +      : `SAMLAR · ${text(data.consumption?.distance_km, 0)} / ${text(data.consumption?.target_km, 0)} km`
-
+ 
    useEffect(() => {
      if (!visible || !coolantCritical) return
 @@ -119,15 +215,83 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
-
+ 
    if (!visible) return null
 -  const openView = (next: typeof view) => {
 +  const openView = (next: Td5View) => {
@@ -352,7 +409,7 @@ index 2304492..bdc56b9 100644
 +      <svg viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: '100%', height: 42, marginTop: 9, overflow: 'visible' }}><polyline fill="none" stroke={color} strokeWidth="2.5" points={linePoints(values)} /></svg>
      </article>
    )
-
+ 
 @@ -142,50 +306,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >

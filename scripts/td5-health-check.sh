@@ -28,3 +28,8 @@ if command -v curl >/dev/null 2>&1 && curl --fail --silent --max-time 2 http://1
 else
   printf '%s\n' '• Gateway-API svarar inte ännu; kontrollera tjänsten ovan.'
 fi
+
+if command -v journalctl >/dev/null 2>&1; then
+  printf '%s\n' '• Senaste startmätpunkter:'
+  journalctl -b --no-pager -o short-monotonic -t td5-livi -t td5-gateway 2>/dev/null | tail -n 12 || true
+fi

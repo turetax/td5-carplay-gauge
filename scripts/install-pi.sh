@@ -7,23 +7,26 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/install-pi.sh [--user USER] [--home DIRECTORY] [--build-livi]
+Usage: ./scripts/install-pi.sh [--user USER] [--home DIRECTORY] [--build-livi] [--package-livi]
 
 Run this from a clone of TD5 CarPlay Gauge on Raspberry Pi OS.
   --user USER       desktop user to own the installation (default: current user)
   --home DIRECTORY  home directory for that user (default: discovered from passwd)
   --build-livi      also build the patched LIVI source; requires Node.js + pnpm
+  --package-livi    build the ARM64 production AppImage (slower install, faster/cleaner launch)
 EOF
 }
 
 TD5_USER="${SUDO_USER:-$USER}"
 TD5_HOME=""
 BUILD_LIVI=false
+PACKAGE_LIVI=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --user) TD5_USER="${2:?Missing value for --user}"; shift 2 ;;
     --home) TD5_HOME="${2:?Missing value for --home}"; shift 2 ;;
     --build-livi) BUILD_LIVI=true; shift ;;
+    --package-livi) BUILD_LIVI=true; PACKAGE_LIVI=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Okänt val: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -100,7 +103,11 @@ if [ "$BUILD_LIVI" = true ]; then
     exit 1
   fi
   printf '%s\n' 'Applicerar Td5-patch och bygger LIVI …'
-  su - "$TD5_USER" -c "cd '$TARGET_DIR' && git submodule update --init --recursive && ./scripts/apply-livi-patch.sh && cd third_party/LIVI && pnpm install --frozen-lockfile && pnpm run build:app"
+  LIVI_BUILD_COMMAND='pnpm run build:app'
+  if [ "$PACKAGE_LIVI" = true ]; then
+    LIVI_BUILD_COMMAND='pnpm run build:linux:arm64'
+  fi
+  su - "$TD5_USER" -c "cd '$TARGET_DIR' && git submodule update --init --recursive && ./scripts/apply-livi-patch.sh && cd third_party/LIVI && pnpm install --frozen-lockfile && $LIVI_BUILD_COMMAND"
 fi
 
 printf '%s\n' ''

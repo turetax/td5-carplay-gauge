@@ -141,6 +141,15 @@ interface automatically.
    ./scripts/install-pi.sh --build-livi
    ```
 
+   For the production AppImage (preferred for the installed head unit), use:
+
+   ```sh
+   ./scripts/install-pi.sh --package-livi
+   ```
+
+   The launcher automatically prefers that package and falls back to the
+   source-built Electron app when no package is present.
+
 5. Restart the Pi. The gateway starts at boot and the full-screen dashboard is
    registered as a desktop autostart application. Connect the K+DCAN cable,
    turn the ignition to position II, and wait for the ECU state in the footer.
@@ -215,6 +224,12 @@ page inside LIVI. Do not expose the diagnostic API to an untrusted network.
 The installed system starts the gateway through `td5-gateway.service` and launches
 the integrated LIVI interface through the desktop autostart entry installed by
 `scripts/install-pi.sh`.
+
+Boot timing markers for both processes are included in the health check:
+
+```sh
+~/td5gauge/scripts/td5-health-check.sh
+```
 
 To try the dashboard without a connected vehicle or K+DCAN cable, start it with
 simulated TD5 data:

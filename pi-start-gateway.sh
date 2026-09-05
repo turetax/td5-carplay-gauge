@@ -3,6 +3,10 @@
 # cable and Td5 ECU become available.
 set -eu
 
+if command -v systemd-cat >/dev/null 2>&1; then
+  printf '%s\n' 'Gateway startup: launcher entered' | systemd-cat -t td5-gateway
+fi
+
 CONFIG_FILE="${TD5_CONFIG_FILE:-/etc/td5-gauge.conf}"
 if [ -r "$CONFIG_FILE" ]; then
   # The file is installed locally by scripts/install-pi.sh.  It contains only
@@ -30,6 +34,10 @@ find_serial_port() {
 PORT="$(find_serial_port)"
 PYTHON="$HOME/td5gauge/.venv/bin/python"
 [ -x "$PYTHON" ] || PYTHON=/usr/bin/python3
+
+if command -v systemd-cat >/dev/null 2>&1; then
+  printf 'Gateway startup: starting Python on %s\n' "$PORT" | systemd-cat -t td5-gateway
+fi
 
 exec "$PYTHON" "$HOME/td5gauge/td5gauge.py" --port "$PORT" \
   --fast-init-mode "${TD5_FAST_INIT_MODE:-break-condition}"
