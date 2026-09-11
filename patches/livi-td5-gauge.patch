@@ -1,3 +1,78 @@
+diff --git a/native/livi-compositor/livi-compositor.c b/native/livi-compositor/livi-compositor.c
+index 297c906..a7e6827 100644
+--- a/native/livi-compositor/livi-compositor.c
++++ b/native/livi-compositor/livi-compositor.c
+@@ -981,6 +981,11 @@ static void apply_video_layout(struct tinywl_toplevel *video) {
+ 	double scale = scx < scy ? scx : scy;
+ 	double off_x = (ow - video->vis_w * scale) / 2.0;
+ 	double off_y = (oh - video->vis_h * scale) / 2.0;
++	const char *main_align = getenv("LIVI_MAIN_VIDEO_ALIGN");
++	if (strcmp(video->tag, "main") == 0 && main_align != NULL &&
++			strcmp(main_align, "right") == 0) {
++		off_x = ow - video->vis_w * scale;
++	}
+ 	int tw = (int)lround(video->tier_w * scale);
+ 	int th = (int)lround(video->tier_h * scale);
+ 	int px = (int)lround(s->x + off_x - video->crop_l * scale);
+diff --git a/src/main/app/__tests__/compositorBootstrap.test.ts b/src/main/app/__tests__/compositorBootstrap.test.ts
+index 5b2653d..41b29de 100644
+--- a/src/main/app/__tests__/compositorBootstrap.test.ts
++++ b/src/main/app/__tests__/compositorBootstrap.test.ts
+@@ -112,6 +112,19 @@ describe('bootstrapCompositor', () => {
+     expect(opts.env.LIVI_OUTPUT_SIZE).toBe('800x480')
+   })
+ 
++  test('right-aligns a narrower full-height projection for a split dashboard', () => {
++    mockedLoadConfig.mockReturnValueOnce({
++      mainScreenWidth: 1920,
++      mainScreenHeight: 440,
++      projectionWidth: 1174,
++      projectionHeight: 440,
++      kiosk: { main: true }
++    })
++    expect(bootstrapCompositor()).toBe(true)
++    const [, , opts] = mockedSpawn.mock.calls[0]
++    expect(opts.env.LIVI_MAIN_VIDEO_ALIGN).toBe('right')
++  })
++
+   test('windowed config adds the titlebar height and skips the mode switch', () => {
+     process.env.LD_LIBRARY_PATH = '/opt/lib'
+     process.env.XDG_RUNTIME_DIR = '/run/user/1000'
+diff --git a/src/main/app/compositorBootstrap.ts b/src/main/app/compositorBootstrap.ts
+index 42eb72b..735a8ab 100644
+--- a/src/main/app/compositorBootstrap.ts
++++ b/src/main/app/compositorBootstrap.ts
+@@ -30,12 +30,20 @@ export function bootstrapCompositor(): boolean {
+   const ctrlSocket = join(runtimeDir, 'livi-compositor.ctrl')
+ 
+   let outputSize: string | undefined
++  let mainVideoAlign: 'right' | undefined
+   try {
+     const cfg = loadConfig()
+     const ow = Math.round(Number(cfg.mainScreenWidth))
+     const oh = Math.round(Number(cfg.mainScreenHeight))
++    const projectionWidth = Math.round(Number(cfg.projectionWidth))
++    const projectionHeight = Math.round(Number(cfg.projectionHeight))
+     const wantKiosk = cfg.kiosk?.main === true || process.env.LIVI_KIOSK === '1'
+     if (ow > 0 && oh > 0) outputSize = `${ow}x${oh + (wantKiosk ? 0 : COMPOSITOR_TITLEBAR_H)}`
++    // A narrower, full-height projection is the right-hand pane of a split dashboard.
++    // Tell the compositor to anchor it beside the native dashboard instead of centring it.
++    if (projectionWidth > 0 && projectionWidth < ow && projectionHeight === oh) {
++      mainVideoAlign = 'right'
++    }
+     if (wantKiosk) applyKioskDisplayMode(cfg.displayMode)
+   } catch {
+     // fall back to the compositor's built-in default
+@@ -48,7 +56,8 @@ export function bootstrapCompositor(): boolean {
+     LIVI_OUTPUT_APP_ID: 'dev.f-io.livi',
+     LIVI_COMPOSITOR_CTRL: ctrlSocket,
+     LIVI_SCREENS: 'main,dash,aux',
+-    ...(outputSize ? { LIVI_OUTPUT_SIZE: outputSize } : {})
++    ...(outputSize ? { LIVI_OUTPUT_SIZE: outputSize } : {}),
++    ...(mainVideoAlign ? { LIVI_MAIN_VIDEO_ALIGN: mainVideoAlign } : {})
+   }
+   delete env.APPIMAGE
+   delete env.APPDIR
 diff --git a/src/main/index.ts b/src/main/index.ts
 index f035245..ef5c19d 100644
 --- a/src/main/index.ts
