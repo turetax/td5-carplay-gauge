@@ -16,6 +16,8 @@ project's 1920 × 440 display.
 
 * Live TD5 engine data inside the LIVI interface
 * Apple CarPlay integration through LIVI, intended for use with a Carlinkit adapter
+* A Defender-style idle dashboard with a clock, vehicle silhouette, session status,
+  and live engine values whenever CarPlay is not streaming
 * Coolant temperature, engine speed, voltage, fuel temperature, intake air
   temperature, MAP, calculated boost, MAF, wastegate, throttle, and injector
   balance readings
@@ -34,7 +36,9 @@ The system consists of two cooperating processes on the Raspberry Pi:
    exposes them through a local API at `http://127.0.0.1:8080`.
 2. LIVI runs as the single full-screen vehicle interface. Its built-in TD5 page
    reads the local gateway API and displays live values, history, warnings, and
-   diagnostic information. LIVI also manages the CarPlay projection session.
+   diagnostic information. LIVI also manages the CarPlay projection session. When
+   the phone is disconnected, the projection area automatically becomes a compact
+   vehicle overview; an active CarPlay video stream replaces it immediately.
 
 The gateway and dashboard are read-oriented. Fault-code requests only read stored
 and active faults; they do not clear codes, change ECU settings, or perform actuator

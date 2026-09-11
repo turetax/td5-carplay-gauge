@@ -109,21 +109,247 @@ index b99bd60..0e9a5f2 100644
      </AppLayout>
    )
  }
+diff --git a/src/renderer/src/components/pages/projection/IdleDashboard.tsx b/src/renderer/src/components/pages/projection/IdleDashboard.tsx
+new file mode 100644
+index 0000000..0c91849
+--- /dev/null
++++ b/src/renderer/src/components/pages/projection/IdleDashboard.tsx
+@@ -0,0 +1,167 @@
++import { useEffect, useState } from 'react'
++
++type IdleLive = {
++  status?: string
++  rpm?: number | null
++  voltage_v?: number | null
++  coolant_c?: number | null
++  boost_kpa?: number | null
++  map_kpa?: number | null
++  aap_kpa?: number | null
++  consumption?: {
++    distance_km?: number
++    l_per_100km?: number | null
++    provisional_l_per_100km?: number | null
++  }
++  session?: {
++    duration_s?: number
++    peaks?: { coolant_c?: number | null; boost_kpa?: number | null; rpm?: number | null }
++  }
++}
++
++const emptyLive: IdleLive = { status: 'Söker ECU' }
++
++const numberText = (value: number | null | undefined, decimals = 0) =>
++  value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(decimals)
++
++const durationText = (seconds?: number) => {
++  const value = Math.max(0, Math.round(seconds ?? 0))
++  const hours = Math.floor(value / 3600)
++  const minutes = String(Math.floor(value / 60) % 60).padStart(2, '0')
++  return `${hours}:${minutes}`
++}
++
++function DefenderSilhouette() {
++  return (
++    <svg aria-label="Defender-siluett" role="img" viewBox="0 0 520 170" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
++      <defs>
++        <linearGradient id="idle-body" x1="0" x2="0" y1="0" y2="1">
++          <stop offset="0" stopColor="#c7ddb2" stopOpacity=".92" />
++          <stop offset="1" stopColor="#718466" stopOpacity=".62" />
++        </linearGradient>
++        <filter id="idle-glow" x="-40%" y="-80%" width="180%" height="260%">
++          <feGaussianBlur stdDeviation="8" />
++        </filter>
++      </defs>
++      <ellipse cx="265" cy="145" rx="214" ry="13" fill="#a9c68f" opacity=".13" filter="url(#idle-glow)" />
++      <path d="M54 119 71 79h60l19-49h196l48 49h55l20 40v20H54Z" fill="url(#idle-body)" stroke="#dbe8cf" strokeWidth="3" strokeLinejoin="round" />
++      <path d="m166 40-14 39h99V40Zm101 0v39h105l-38-39Z" fill="#131916" stroke="#a9b7a1" strokeWidth="2" />
++      <path d="M101 83h52m241 0h46M263 39v81M56 119h411" fill="none" stroke="#263128" strokeWidth="3" />
++      <path d="M272 51h6m-116 47h20m154 0h23" stroke="#e7eee1" strokeLinecap="round" strokeWidth="4" />
++      <circle cx="139" cy="132" r="29" fill="#0b0e0c" stroke="#b8c2b1" strokeWidth="7" />
++      <circle cx="139" cy="132" r="11" fill="#7f9274" />
++      <circle cx="391" cy="132" r="29" fill="#0b0e0c" stroke="#b8c2b1" strokeWidth="7" />
++      <circle cx="391" cy="132" r="11" fill="#7f9274" />
++      <rect x="61" y="96" width="20" height="12" rx="4" fill="#f0c44f" opacity=".85" />
++      <rect x="450" y="96" width="13" height="12" rx="3" fill="#f4544c" opacity=".72" />
++    </svg>
++  )
++}
++
++function Stat({ label, value, unit, tone = '#eef3ea' }: { label: string; value: string; unit: string; tone?: string }) {
++  return (
++    <div style={{ minWidth: 0, padding: '14px 16px', border: '1px solid #ffffff17', borderRadius: 15, background: '#0d120fba' }}>
++      <div style={{ color: '#929e92', fontSize: 12, fontWeight: 800, letterSpacing: '.12em', whiteSpace: 'nowrap' }}>{label}</div>
++      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
++        <span style={{ color: tone, fontSize: 33, fontWeight: 750, lineHeight: 1, letterSpacing: '-.055em' }}>{value}</span>
++        <span style={{ color: '#aab4aa', fontSize: 12, fontWeight: 800, letterSpacing: '.08em' }}>{unit}</span>
++      </div>
++    </div>
++  )
++}
++
++export function IdleDashboard({ visible, hardwarePresent }: { visible: boolean; hardwarePresent: boolean }) {
++  const [live, setLive] = useState<IdleLive>(emptyLive)
++  const [now, setNow] = useState(() => new Date())
++
++  useEffect(() => {
++    if (!visible) return
++    const timer = window.setInterval(() => setNow(new Date()), 1000)
++    return () => window.clearInterval(timer)
++  }, [visible])
++
++  useEffect(() => {
++    if (!visible) return
++    let alive = true
++    const read = async () => {
++      try {
++        const response = await fetch('http://127.0.0.1:8080/api/live', { cache: 'no-store' })
++        if (!response.ok) throw new Error(String(response.status))
++        if (alive) setLive(await response.json())
++      } catch {
++        if (alive) setLive((current) => ({ ...current, status: 'Söker ECU' }))
++      }
++    }
++    void read()
++    const timer = window.setInterval(() => void read(), 1000)
++    return () => {
++      alive = false
++      window.clearInterval(timer)
++    }
++  }, [visible])
++
++  if (!visible) return null
++
++  const connected = live.status === 'Ansluten'
++  const running = Number(live.rpm ?? 0) > 300
++  const coolant = Number(live.coolant_c ?? 0)
++  const coolantTone = coolant >= 105 ? '#ff4b42' : coolant >= 98 ? '#f0c44f' : '#eef3ea'
++  const boost = live.boost_kpa ?? (live.map_kpa != null && live.aap_kpa != null ? live.map_kpa - live.aap_kpa : null)
++  const consumption = live.consumption?.l_per_100km ?? live.consumption?.provisional_l_per_100km
++  const carplayText = hardwarePresent ? 'VÄNTAR PÅ IPHONE' : 'ANSLUT CARPLAY'
++
++  return (
++    <section
++      aria-label="Defender startskärm"
++      style={{
++        position: 'absolute',
++        inset: 0,
++        overflow: 'hidden',
++        color: '#eef3ea',
++        background: 'radial-gradient(circle at 52% 35%, #202b22 0, #101612 43%, #080b09 100%)',
++        fontFamily: 'Manrope, Arial, sans-serif',
++        pointerEvents: 'auto'
++      }}
++    >
++      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, opacity: .2, backgroundImage: 'linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px)', backgroundSize: '42px 42px', maskImage: 'linear-gradient(to bottom, black, transparent 75%)' }} />
++      <div style={{ position: 'relative', height: '100%', padding: '24px 30px 20px', display: 'grid', gridTemplateColumns: 'minmax(360px,1.2fr) minmax(420px,1fr)', gap: 26 }}>
++        <div style={{ minWidth: 0, display: 'grid', gridTemplateRows: 'auto 1fr auto' }}>
++          <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
++            <div>
++              <div style={{ color: '#b8d699', fontSize: 14, fontWeight: 850, letterSpacing: '.2em' }}>DEFENDER · TD5</div>
++              <div style={{ marginTop: 5, color: '#dce5d8', fontSize: 22, fontWeight: 700, letterSpacing: '.04em' }}>FORDONSSYSTEM</div>
++            </div>
++            <time style={{ fontSize: 42, fontWeight: 650, lineHeight: 1, letterSpacing: '-.045em' }}>
++              {now.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}
++            </time>
++          </header>
++          <div style={{ minHeight: 0, padding: '2px 4px 0', display: 'grid', placeItems: 'center' }}><DefenderSilhouette /></div>
++          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
++            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: connected ? '#cfe5bb' : '#f0c44f', fontSize: 13, fontWeight: 850, letterSpacing: '.1em' }}>
++              <span style={{ width: 9, height: 9, flex: '0 0 auto', borderRadius: '50%', background: connected ? '#b8d699' : '#f0c44f', boxShadow: connected ? '0 0 15px #b8d69999' : 'none' }} />
++              {connected ? (running ? 'MOTOR IGÅNG' : 'ECU ANSLUTEN') : 'SÖKER ECU'}
++            </div>
++            <div style={{ color: '#8e998e', fontSize: 12, fontWeight: 750, letterSpacing: '.08em' }}>SESSION {durationText(live.session?.duration_s)}</div>
++          </div>
++        </div>
++
++        <div style={{ minWidth: 0, display: 'grid', gridTemplateRows: '1fr auto', gap: 14 }}>
++          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
++            <Stat label="KYLNING" value={numberText(live.coolant_c)} unit="°C" tone={coolantTone} />
++            <Stat label="LADDNING" value={numberText(live.voltage_v, 1)} unit="V" />
++            <Stat label="LADDTRYCK" value={numberText(boost)} unit="kPa" />
++            <Stat label="SNITT" value={consumption == null ? '—' : numberText(consumption / 10, 2)} unit="l/mil" />
++          </div>
++          <div style={{ minHeight: 66, padding: '12px 16px', border: '1px solid #b8d6992e', borderRadius: 15, background: '#b8d6990b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 18 }}>
++            <div>
++              <div style={{ color: '#cfe5bb', fontSize: 14, fontWeight: 850, letterSpacing: '.12em' }}>{carplayText}</div>
++              <div style={{ marginTop: 5, color: '#8f9a8f', fontSize: 12 }}>{hardwarePresent ? 'CarPlay startar automatiskt när telefonen ansluter' : 'Sätt i Carlinkit-dongeln för att ansluta telefonen'}</div>
++            </div>
++            <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b8d699" strokeWidth="1.8"><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M10 18h4" /></svg>
++          </div>
++        </div>
++      </div>
++      <style>{'@keyframes idle-breathe{0%,100%{opacity:.7}50%{opacity:1}}'}</style>
++    </section>
++  )
++}
 diff --git a/src/renderer/src/components/pages/projection/Projection.tsx b/src/renderer/src/components/pages/projection/Projection.tsx
-index 906cabf..a740ec9 100644
+index 906cabf..abbb47b 100644
 --- a/src/renderer/src/components/pages/projection/Projection.tsx
 +++ b/src/renderer/src/components/pages/projection/Projection.tsx
-@@ -62,16 +62,19 @@ function StatusOverlay({
-           top: `calc(50% + ${offsetY}px)`,
-           transform: 'translate(-50%, -50%)',
-           display: 'grid',
+@@ -1,12 +1,10 @@
+-// Icons
+-import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
+-import { Box, useTheme } from '@mui/material'
++import { useTheme } from '@mui/material'
+ import type { Config } from '@shared/types'
+ import { AudioCommand, CommandMapping } from '@shared/types/ProjectionEnums'
+ import { aaContentArea, isClusterDisplayed } from '@shared/utils'
+ import { createProjectionWorker } from '@worker/createProjectionWorker'
+ import type { KeyCommand, ProjectionWorker, UsbEvent, WorkerToUI } from '@worker/types'
+-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
++import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import { useLocation, useNavigate } from 'react-router'
+ import { useFftPcm } from '../../../hooks/useFftPcm'
+ import {
+@@ -16,6 +14,7 @@ import {
+   useStatusStore
+ } from '../../../store/store'
+ import { useProjectionMultiTouch } from './hooks/useProjectionTouch'
++import { IdleDashboard } from './IdleDashboard'
+ import { ViewAreaMask } from './ViewAreaMask'
+ 
+ const RETRY_DELAY_MS = 3000
+@@ -28,55 +27,6 @@ interface CarplayProps {
+   commandCounter: number
+ }
+ 
+-function StatusOverlay({
+-  mode,
+-  show,
+-  offsetX = 0,
+-  offsetY = 0
+-}: {
+-  mode: 'dongle' | 'phone'
+-  show: boolean
+-  offsetX?: number
+-  offsetY?: number
+-}) {
+-  const theme = useTheme()
+-  const isPhonePhase = mode === 'phone'
+-
+-  return (
+-    <Box
+-      role="status"
+-      aria-live="polite"
+-      aria-hidden={!show}
+-      sx={{
+-        position: 'absolute',
+-        inset: 0,
+-        pointerEvents: 'none',
+-        display: show ? 'block' : 'none',
+-        zIndex: 9
+-      }}
+-    >
+-      <Box
+-        sx={{
+-          position: 'absolute',
+-          left: `calc(50% + ${offsetX}px)`,
+-          top: `calc(50% + ${offsetY}px)`,
+-          transform: 'translate(-50%, -50%)',
+-          display: 'grid',
 -          placeItems: 'center'
-+          placeItems: 'center',
-+          minWidth: 280,
-+          textAlign: 'center',
-+          color: theme.palette.text.primary
-         }}
-       >
+-        }}
+-      >
 -        <CropPortraitOutlinedIcon
 -          sx={{
 -            fontSize: 84,
@@ -131,21 +357,85 @@ index 906cabf..a740ec9 100644
 -            opacity: isPhonePhase ? 'var(--ui-breathe-opacity, 1)' : 0.55
 -          }}
 -        />
-+        <Box sx={{ width: 82, height: 82, border: '1px solid', borderColor: 'divider', borderRadius: 3, display: 'grid', placeItems: 'center', opacity: isPhonePhase ? 'var(--ui-breathe-opacity, 1)' : 0.7 }}>
-+          <CropPortraitOutlinedIcon sx={{ fontSize: 49, color: theme.palette.text.primary }} />
-+        </Box>
-+        <Box sx={{ mt: 2, fontSize: 18, fontWeight: 800, letterSpacing: '.12em' }}>CARPLAY</Box>
-+        <Box sx={{ mt: 0.75, maxWidth: 300, color: 'text.secondary', fontSize: 14, fontWeight: 600, letterSpacing: '.04em', lineHeight: 1.35 }}>
-+          {isPhonePhase ? 'VÄNTAR PÅ IPHONE' : 'ANSLUT CARLINKIT-DONGELN'}
-+        </Box>
-       </Box>
-     </Box>
-   )
+-      </Box>
+-    </Box>
+-  )
+-}
+-
+ // Projection
+ 
+ const CarplayComponent: React.FC<CarplayProps> = ({
+@@ -153,42 +103,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
+     attentionSwitchedByRef.current = null
+   }, [pathname])
+ 
+-  // Overlay offset
+-  const [overlayX, setOverlayX] = useState(0)
+-  const [overlayY, setOverlayY] = useState(0)
+-
+-  useLayoutEffect(() => {
+-    const getAnchor = () => document.getElementById('content-root')
+-
+-    const recalc = () => {
+-      const r = getAnchor()?.getBoundingClientRect()
+-      if (!r) return
+-
+-      const contentCenterX = r.left + r.width / 2
+-      const contentCenterY = r.top + r.height / 2
+-
+-      const windowCenterX = window.innerWidth / 2
+-      const windowCenterY = window.innerHeight / 2
+-
+-      setOverlayX(contentCenterX - windowCenterX)
+-      setOverlayY(contentCenterY - windowCenterY)
+-    }
+-
+-    recalc()
+-    const raf = requestAnimationFrame(recalc)
+-
+-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(recalc) : null
+-    const anchor = getAnchor()
+-    if (ro && anchor) ro.observe(anchor)
+-
+-    window.addEventListener('resize', recalc)
+-    return () => {
+-      cancelAnimationFrame(raf)
+-      window.removeEventListener('resize', recalc)
+-      ro?.disconnect()
+-    }
+-  }, [settings?.hand])
+-
+   // Visual delay for FFT so spectrum matches audio playback
+   const fftVisualDelayMs = 0
+ 
+@@ -589,8 +503,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
+ 
+   /* ------------------------------- UI binding ------------------------------ */
+ 
+-  const mode: 'dongle' | 'phone' = !isProjectionActive ? 'dongle' : 'phone'
+-
+   const inProjection = pathname === '/'
+   const showProjectionOverlay = inProjection
+ 
+@@ -643,9 +555,10 @@ const CarplayComponent: React.FC<CarplayProps> = ({
+         zIndex: showProjectionOverlay ? 999 : -1
+       }}
+     >
+-      {pathname === '/' && (
+-        <StatusOverlay show={!receivingVideo} mode={mode} offsetX={overlayX} offsetY={overlayY} />
+-      )}
++      <IdleDashboard
++        visible={pathname === '/' && !receivingVideo}
++        hardwarePresent={isProjectionActive}
++      />
+ 
+       <div
+         id="videoContainer"
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..bdc56b9 100644
+index 2304492..f0734b0 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-@@ -3,6 +3,8 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
+@@ -3,22 +3,100 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
  
  type Td5Live = {
    status?: string
@@ -154,7 +444,11 @@ index 2304492..bdc56b9 100644
    coolant_c?: number | null
    rpm?: number | null
    voltage_v?: number | null
-@@ -13,12 +15,87 @@ type Td5Live = {
+   fuel_c?: number | null
+   map_kpa?: number | null
++  aap_kpa?: number | null
+   boost_kpa?: number | null
+   air_c?: number | null
    maf_kg_h?: number | null
    wastegate_percent?: number | null
    throttle_1?: number | null
@@ -242,7 +536,7 @@ index 2304492..bdc56b9 100644
  
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
-@@ -37,28 +114,19 @@ function warningTone(value: number | null | undefined, warning: number, danger:
+@@ -37,28 +115,19 @@ function warningTone(value: number | null | undefined, warning: number, danger:
  
  function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
    if (value == null) return '#eef3ea'
@@ -278,7 +572,7 @@ index 2304492..bdc56b9 100644
  
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +148,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +149,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
  
@@ -322,7 +616,7 @@ index 2304492..bdc56b9 100644
  
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +215,83 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +216,83 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
  
    if (!visible) return null
@@ -410,7 +704,7 @@ index 2304492..bdc56b9 100644
      </article>
    )
  
-@@ -142,50 +306,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -142,50 +307,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        }}
      >
        <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
