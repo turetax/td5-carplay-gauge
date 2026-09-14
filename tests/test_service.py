@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from td5gauge import Service
 
@@ -54,3 +55,29 @@ class ServiceTests(unittest.TestCase):
     def test_missing_serial_adapter_has_a_human_readable_error(self):
         message = Service._connection_error_text(FileNotFoundError("could not open port /dev/ttyUSB0"))
         self.assertIn("K+DCAN-adaptern", message)
+
+    def test_engine_restart_starts_a_fresh_driving_session(self):
+        service = Service(None, simulate=True)
+        service._update_engine_session(sample(updated_at=1000.0, engine_on=True))
+        service.history.append(sample(updated_at=1001.0))
+        service.peaks["rpm"] = 2500.0
+
+        # Remaining on does not repeatedly reset the session.
+        service._update_engine_session(sample(updated_at=1010.0, engine_on=True))
+        self.assertEqual(service.started_at, 1000.0)
+        self.assertEqual(len(service.history), 1)
+
+        service._update_engine_session(sample(updated_at=1020.0, engine_on=False))
+        with patch("td5gauge.time.time", return_value=1099.0):
+            self.assertEqual(service.snapshot()["session"]["duration_s"], 20)
+        service._update_engine_session(sample(updated_at=1030.0, engine_on=True))
+
+        self.assertEqual(service.started_at, 1030.0)
+        self.assertEqual(list(service.history), [])
+        self.assertIsNone(service.peaks["rpm"])
+
+    def test_session_duration_uses_latest_engine_start(self):
+        service = Service(None, simulate=True)
+        service._update_engine_session(sample(updated_at=1000.0, engine_on=True))
+        with patch("td5gauge.time.time", return_value=1065.0):
+            self.assertEqual(service.snapshot()["session"]["duration_s"], 65)

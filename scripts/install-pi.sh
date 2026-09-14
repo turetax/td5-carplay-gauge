@@ -58,6 +58,12 @@ printf '%s\n' 'Installerar grundberoenden …'
 sudo apt-get update
 sudo apt-get install --yes python3-venv python3-pip python3-serial curl git sway
 
+# USB serial adapters are normally owned by the dialout group on Raspberry Pi
+# OS. Apply this during installation so the gateway can open /dev/ttyUSB*.
+if getent group dialout >/dev/null 2>&1; then
+  sudo usermod -aG dialout "$TD5_USER"
+fi
+
 if [ "$ROOT_DIR" != "$TARGET_DIR" ]; then
   printf '%s\n' "Kopierar projektet till $TARGET_DIR …"
   mkdir -p "$TARGET_DIR"
@@ -71,6 +77,16 @@ su - "$TD5_USER" -c "python3 -m venv '$TARGET_DIR/.venv'"
 su - "$TD5_USER" -c "'$TARGET_DIR/.venv/bin/python' -m pip install --upgrade pip"
 su - "$TD5_USER" -c "'$TARGET_DIR/.venv/bin/python' -m pip install -r '$TARGET_DIR/requirements.txt'"
 chmod +x "$TARGET_DIR/pi-start-gateway.sh" "$TARGET_DIR/livi-integrated-start.sh" "$TARGET_DIR/livi-source-launcher.sh" "$TARGET_DIR/scripts/"*.sh
+
+# Allow only LIVI's fixed power helper to run without a password. The renderer
+# cannot execute arbitrary commands; it can only request poweroff/reboot through
+# the main process and this argument-validating helper.
+sudo install -d -m 0755 /usr/local/lib/livi
+sudo install -m 0755 "$TARGET_DIR/packaging/livi-power.sh" /usr/local/lib/livi/livi-power.sh
+sed "s|__TD5_USER__|$TD5_USER|g" "$TARGET_DIR/packaging/99-TD5-livi-power" | \
+  sudo tee /etc/sudoers.d/99-TD5-livi-power >/dev/null
+sudo chmod 0440 /etc/sudoers.d/99-TD5-livi-power
+sudo visudo -c -f /etc/sudoers.d/99-TD5-livi-power
 
 if [ ! -e /etc/td5-gauge.conf ]; then
   sudo install -m 0644 "$TARGET_DIR/packaging/td5-gauge.conf.example" /etc/td5-gauge.conf

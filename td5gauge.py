@@ -403,6 +403,8 @@ class Service:
         self.lock = threading.Lock()
         self.port, self.simulate, self.fast_init_mode = port, simulate, fast_init_mode
         self.started_at = time.time()
+        self.engine_was_on = False
+        self.session_ended_at: float | None = None
         self.history: deque[dict] = deque(maxlen=720)  # Twelve minutes at one sample/second.
         self.last_recorded_at = 0.0
         self.fuel_window: deque[dict[str, float]] = deque()
@@ -476,6 +478,7 @@ class Service:
             "map_kpa", "aap_kpa", "boost_kpa", "maf_kg_h", "wastegate_percent", "throttle_1", "throttle_2", "throttle_3", "throttle_supply_v",
             "driver_fuel_demand_mg", "fuel_injected_mg", "idle_fuel_demand_mg", "injector_balance", "engine_on",
         )}
+        self._update_engine_session(sample)
         self._update_fuel_window(sample)
         with self.lock:
             self.history.append(sample)
@@ -490,6 +493,31 @@ class Service:
                 self.ranges["voltage_v"] = [voltage if low is None else min(low, voltage), voltage if high is None else max(high, voltage)]
         if not self.simulate:
             self._append_csv(sample)
+
+    def _update_engine_session(self, sample: dict) -> None:
+        """Start a fresh driving session whenever the engine is started.
+
+        The gateway normally stays alive across ignition cycles, so process
+        uptime is not the same thing as driving time. The rolling fuel window
+        deliberately survives this reset; only values labelled as belonging
+        to the current drive are cleared.
+        """
+        engine_on = bool(sample.get("engine_on"))
+        if engine_on and not self.engine_was_on:
+            now = self._number(sample.get("updated_at")) or time.time()
+            with self.lock:
+                self.started_at = now
+                self.session_ended_at = None
+                self.history.clear()
+                self.peaks = {"coolant_c": None, "boost_kpa": None, "rpm": None}
+                self.ranges = {"voltage_v": [None, None]}
+                self.alert_history.clear()
+                self.active_alerts.clear()
+                self.critical_latch_until.clear()
+        elif not engine_on and self.engine_was_on:
+            with self.lock:
+                self.session_ended_at = self._number(sample.get("updated_at")) or time.time()
+        self.engine_was_on = engine_on
 
     def _load_fuel_window(self) -> None:
         """Restore only compact distance/fuel buckets; never retain raw ECU frames."""
@@ -887,7 +915,7 @@ class Service:
         result["age_s"] = round(time.time() - result["updated_at"], 1) if result["updated_at"] else None
         result["session"] = {
             "started_at": self.started_at,
-            "duration_s": round(time.time() - self.started_at),
+            "duration_s": round((self.session_ended_at or time.time()) - self.started_at),
             "peaks": peaks,
             "voltage_range": voltage_range,
             "log_active": not self.simulate,

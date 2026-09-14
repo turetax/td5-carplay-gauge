@@ -38,6 +38,19 @@ index 5b2653d..41b29de 100644
    test('windowed config adds the titlebar height and skips the mode switch', () => {
      process.env.LD_LIBRARY_PATH = '/opt/lib'
      process.env.XDG_RUNTIME_DIR = '/run/user/1000'
+diff --git a/src/main/app/__tests__/gpu.test.ts b/src/main/app/__tests__/gpu.test.ts
+index 713b5a4..adccd9f 100644
+--- a/src/main/app/__tests__/gpu.test.ts
++++ b/src/main/app/__tests__/gpu.test.ts
+@@ -56,6 +56,8 @@ describe('gpu module', () => {
+ 
+     expect(mockedAppendSwitch).toHaveBeenCalledWith('ignore-gpu-blocklist')
+     expect(mockedAppendSwitch).toHaveBeenCalledWith('enable-gpu-rasterization')
++    expect(mockedAppendSwitch).toHaveBeenCalledWith('disable-features', 'Vulkan')
++    expect(mockedAppendSwitch).toHaveBeenCalledWith('disable-vulkan')
+     expect(mockedLinuxPresetAngleVulkan).not.toHaveBeenCalled()
+   })
+ 
 diff --git a/src/main/app/compositorBootstrap.ts b/src/main/app/compositorBootstrap.ts
 index 42eb72b..735a8ab 100644
 --- a/src/main/app/compositorBootstrap.ts
@@ -73,8 +86,36 @@ index 42eb72b..735a8ab 100644
    }
    delete env.APPIMAGE
    delete env.APPDIR
+diff --git a/src/main/app/gpu.ts b/src/main/app/gpu.ts
+index 5ac4dfa..cafbc9a 100644
+--- a/src/main/app/gpu.ts
++++ b/src/main/app/gpu.ts
+@@ -16,6 +16,11 @@ if (process.platform === 'linux' && process.arch === 'x64') {
+ // arm64/Pi: GPU toggles so Chromium composites on the V3D GPU
+ if (process.platform === 'linux' && process.arch !== 'x64') {
+   commonGpuToggles()
++  // Chromium's Vulkan path is incompatible with the Pi's nested Wayland
++  // compositor. Disable only that path; GStreamer keeps using the V4L2 H.264
++  // decoder and Chromium keeps GPU rasterization on V3D.
++  app.commandLine.appendSwitch('disable-features', 'Vulkan')
++  app.commandLine.appendSwitch('disable-vulkan')
+ }
+ 
+ export function commonGpuToggles() {
+diff --git a/src/main/app/lifecycle.ts b/src/main/app/lifecycle.ts
+index aa3b9d4..808b02d 100644
+--- a/src/main/app/lifecycle.ts
++++ b/src/main/app/lifecycle.ts
+@@ -130,7 +130,4 @@ export function setupLifecycle(runtimeState: runtimeStateProps, services: Servic
+     }
+   })
+ 
+-  app.on('window-all-closed', () => {
+-    if (process.platform !== 'darwin') app.quit()
+-  })
+ }
 diff --git a/src/main/index.ts b/src/main/index.ts
-index f035245..ef5c19d 100644
+index f035245..4c26de0 100644
 --- a/src/main/index.ts
 +++ b/src/main/index.ts
 @@ -6,6 +6,7 @@ import { setupAppIdentity } from '@main/app/init'
@@ -93,6 +134,374 @@ index f035245..ef5c19d 100644
    const projectionService = new ProjectionService()
    const usbService = new USBService(projectionService)
    const telemetryStore = new TelemetryStore()
+@@ -156,15 +158,15 @@ app.whenReady().then(async () => {
+     await checkAndInstallHelperSudoers(win)
+   }
+ 
+-  // The embedded Td5 shell supplies its own compositor and session. Its
+-  // optional desktop-package checks (Cage/seatd) are not relevant here and
+-  // must not interrupt the driver at startup.
+-  if (false && win && process.platform === 'linux') {
++  // Keep desktop automounters from claiming a connected phone before LIVI.
++  // This guard is also needed by the embedded Td5 shell; only the optional
++  // desktop-package prompt below is irrelevant to that installation.
++  if (win && process.platform === 'linux') {
+     await checkAndInstallGvfsGuard(win)
+     startPhoneSuppression()
+   }
+ 
+-  if (false && win && process.platform === 'linux') {
++  if (win && process.platform === 'linux' && process.env.LIVI_EMBEDDED !== '1') {
+     const { dismissed } = await checkMissingPackages(win, runtimeState.config.dismissedPackages)
+     if (dismissed) saveSettings(runtimeState, { dismissedPackages: dismissed })
+   }
+diff --git a/src/main/ipc/__tests__/app.test.ts b/src/main/ipc/__tests__/app.test.ts
+index 3234687..edc1e46 100644
+--- a/src/main/ipc/__tests__/app.test.ts
++++ b/src/main/ipc/__tests__/app.test.ts
+@@ -1,6 +1,10 @@
+ import { registerAppIpc } from '@main/ipc/app'
+ import { registerIpcHandle, registerIpcOn } from '@main/ipc/register'
+-import { hostPowerAvailable, requestPowerAction } from '@main/services/power/hostPower'
++import {
++  canRequestHostPower,
++  hostPowerAvailable,
++  requestPowerAction
++} from '@main/services/power/hostPower'
+ import { isMacPlatform } from '@main/utils'
+ import { broadcastToRenderers } from '@main/window/broadcast'
+ import { getMainWindow } from '@main/window/createWindow'
+@@ -39,6 +43,7 @@ vi.mock('@main/services/video/GstVideo', () => ({
+ }))
+ 
+ vi.mock('@main/services/power/hostPower', () => ({
++  canRequestHostPower: vi.fn(() => true),
+   hostPowerAvailable: vi.fn(() => false),
+   requestPowerAction: vi.fn()
+ }))
+@@ -50,6 +55,7 @@ const mockedRegisterIpcOn = registerIpcOn as Mock
+ const mockedSpawn = spawn as Mock
+ const mockedBroadcastToRenderers = broadcastToRenderers as Mock
+ const mockedHostPowerAvailable = hostPowerAvailable as Mock
++const mockedCanRequestHostPower = canRequestHostPower as Mock
+ const mockedRequestPowerAction = requestPowerAction as Mock
+ 
+ describe('registerAppIpc', () => {
+@@ -66,6 +72,7 @@ describe('registerAppIpc', () => {
+     mockedGetMainWindow.mockReturnValue(null)
+     mockedIsMacPlatform.mockReturnValue(false)
+     mockedHostPowerAvailable.mockReturnValue(false)
++    mockedCanRequestHostPower.mockReturnValue(true)
+ 
+     process.env.APPIMAGE = originalAppImage
+     process.env.APPDIR = originalAppDir
+@@ -278,6 +285,18 @@ describe('registerAppIpc', () => {
+     expect(app.quit).toHaveBeenCalledTimes(1)
+   })
+ 
++  test('on the appliance app:quitApp rejects when host shutdown is unavailable', async () => {
++    mockedHostPowerAvailable.mockReturnValue(true)
++    mockedCanRequestHostPower.mockReturnValue(false)
++    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
++    registerAppIpc(runtimeState, { usbService: {} } as never)
++
++    const quitAppHandler = getHandle('app:quitApp') as (() => void) | undefined
++    expect(() => quitAppHandler?.()).toThrow(/power helper/i)
++    expect(mockedRequestPowerAction).not.toHaveBeenCalled()
++    expect(app.quit).not.toHaveBeenCalled()
++  })
++
+   test('on a desktop app:quitApp asks for no power action', async () => {
+     mockedHostPowerAvailable.mockReturnValue(false)
+     const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
+diff --git a/src/main/ipc/app.ts b/src/main/ipc/app.ts
+index b96255c..51a24d1 100644
+--- a/src/main/ipc/app.ts
++++ b/src/main/ipc/app.ts
+@@ -1,5 +1,9 @@
+ import { registerIpcHandle, registerIpcOn } from '@main/ipc/register'
+-import { hostPowerAvailable, requestPowerAction } from '@main/services/power/hostPower'
++import {
++  canRequestHostPower,
++  hostPowerAvailable,
++  requestPowerAction
++} from '@main/services/power/hostPower'
+ import { compositorRestart } from '@main/services/video/GstVideo'
+ import { runtimeStateProps, ServicesProps } from '@main/types'
+ import { isMacPlatform } from '@main/utils'
+@@ -98,7 +102,12 @@ export function registerAppIpc(runtimeState: runtimeStateProps, services: Servic
+   // App Quit
+   registerIpcHandle('app:quitApp', () => {
+     if (runtimeState.isQuitting) return
+-    if (hostPowerAvailable()) requestPowerAction('poweroff')
++    if (hostPowerAvailable()) {
++      if (!canRequestHostPower('poweroff')) {
++        throw new Error('Host power helper or passwordless sudo rule is unavailable')
++      }
++      requestPowerAction('poweroff')
++    }
+     app.quit()
+   })
+ 
+diff --git a/src/main/services/power/__tests__/hostPower.test.ts b/src/main/services/power/__tests__/hostPower.test.ts
+index 1082a03..e86bba8 100644
+--- a/src/main/services/power/__tests__/hostPower.test.ts
++++ b/src/main/services/power/__tests__/hostPower.test.ts
+@@ -1,17 +1,22 @@
+-import { spawn } from 'node:child_process'
++import { spawn, spawnSync } from 'node:child_process'
+ import fs from 'node:fs'
+ import type { Mock } from 'vitest'
+ import {
++  canRequestHostPower,
+   hostPowerAvailable,
+   pendingPowerAction,
+   requestPowerAction,
+   runPendingPowerAction
+ } from '../hostPower'
+ 
+-vi.mock('node:child_process', () => ({ spawn: vi.fn(() => ({ unref: vi.fn() })) }))
++vi.mock('node:child_process', () => ({
++  spawn: vi.fn(() => ({ unref: vi.fn() })),
++  spawnSync: vi.fn(() => ({ status: 0 }))
++}))
+ vi.mock('node:fs', () => ({ default: { existsSync: vi.fn(() => true) } }))
+ 
+ const mockedSpawn = spawn as unknown as Mock
++const mockedSpawnSync = spawnSync as unknown as Mock
+ const mockedFs = fs as unknown as { existsSync: Mock }
+ 
+ const HELPER = '/usr/local/lib/livi/livi-power.sh'
+@@ -19,6 +24,7 @@ const HELPER = '/usr/local/lib/livi/livi-power.sh'
+ beforeEach(() => {
+   vi.clearAllMocks()
+   mockedSpawn.mockImplementation(() => ({ unref: vi.fn() }))
++  mockedSpawnSync.mockReturnValue({ status: 0 })
+   mockedFs.existsSync.mockReturnValue(true)
+   vi.spyOn(console, 'log').mockImplementation(() => {})
+   vi.spyOn(console, 'warn').mockImplementation(() => {})
+@@ -48,6 +54,27 @@ describe('hostPowerAvailable', () => {
+   })
+ })
+ 
++describe('canRequestHostPower', () => {
++  test('requires kiosk mode, helper and a working sudo rule', () => {
++    process.env.LIVI_KIOSK = '1'
++    expect(canRequestHostPower('poweroff')).toBe(true)
++    expect(mockedSpawnSync).toHaveBeenCalledWith(
++      'sudo',
++      ['-n', '-l', HELPER, 'poweroff'],
++      { stdio: 'ignore' }
++    )
++  })
++
++  test('rejects a missing helper or denied sudo rule', () => {
++    process.env.LIVI_KIOSK = '1'
++    mockedFs.existsSync.mockReturnValue(false)
++    expect(canRequestHostPower('poweroff')).toBe(false)
++    mockedFs.existsSync.mockReturnValue(true)
++    mockedSpawnSync.mockReturnValue({ status: 1 })
++    expect(canRequestHostPower('poweroff')).toBe(false)
++  })
++})
++
+ describe('runPendingPowerAction', () => {
+   test('does nothing without a request', () => {
+     runPendingPowerAction()
+diff --git a/src/main/services/power/hostPower.ts b/src/main/services/power/hostPower.ts
+index c0f5693..f7ffe24 100644
+--- a/src/main/services/power/hostPower.ts
++++ b/src/main/services/power/hostPower.ts
+@@ -1,6 +1,6 @@
+ // Host power, via the root helper.
+ 
+-import { spawn } from 'node:child_process'
++import { spawn, spawnSync } from 'node:child_process'
+ import fs from 'node:fs'
+ 
+ const POWER_HELPER = '/usr/local/lib/livi/livi-power.sh'
+@@ -14,6 +14,13 @@ export function hostPowerAvailable(): boolean {
+   return process.env.LIVI_KIOSK === '1'
+ }
+ 
++/** Verify both the helper installation and the passwordless sudo rule. */
++export function canRequestHostPower(action: PowerAction): boolean {
++  if (!hostPowerAvailable() || !fs.existsSync(POWER_HELPER)) return false
++  const result = spawnSync('sudo', ['-n', '-l', POWER_HELPER, action], { stdio: 'ignore' })
++  return !result.error && result.status === 0
++}
++
+ /** Remember what to do once the quit sequence has run. */
+ export function requestPowerAction(action: PowerAction): void {
+   pending = action
+diff --git a/src/main/services/projection/services/ProjectionService.ts b/src/main/services/projection/services/ProjectionService.ts
+index 7768897..c6202f2 100644
+--- a/src/main/services/projection/services/ProjectionService.ts
++++ b/src/main/services/projection/services/ProjectionService.ts
+@@ -155,6 +155,7 @@ export class ProjectionService {
+   private startPromise: Promise<void> | null = null
+   private stopPromise: Promise<void> | null = null
+   private firstFrameLogged = false
++  private projectionConnectStartedAt: number | null = null
+   private lastVideoWidth?: number
+   private lastVideoHeight?: number
+   private videoActiveDriver: IPhoneDriver | null = null
+@@ -921,8 +922,9 @@ export class ProjectionService {
+   private markFirstFrame(): void {
+     if (this.firstFrameLogged) return
+     this.firstFrameLogged = true
+-    const dt = Date.now() - APP_START_TS
+-    console.log(`[Perf] AppStart→FirstFrame: ${dt} ms`)
++    const startedAt = this.projectionConnectStartedAt ?? APP_START_TS
++    const label = this.projectionConnectStartedAt == null ? 'AppStart' : 'Connect'
++    console.log(`[Perf] ${label}→FirstFrame: ${Date.now() - startedAt} ms`)
+     this.statusFile.setStreaming(true)
+   }
+ 
+@@ -1322,6 +1324,12 @@ export class ProjectionService {
+   }
+ 
+   public markDongleConnected(connected: boolean): void {
++    if (connected) {
++      this.projectionConnectStartedAt = Date.now()
++      this.firstFrameLogged = false
++    } else {
++      this.projectionConnectStartedAt = null
++    }
+     this.arbiter.markDongleConnected(connected)
+     this.statusFile.setUsbState(this.arbiter.isPhoneConnected(), connected)
+     if (connected) void this.dongleDriver.bringUp(this.config, this.pendingStartupConnectTarget)
+@@ -1329,7 +1337,13 @@ export class ProjectionService {
+   }
+ 
+   public markPhoneConnected(connected: boolean, device?: Device): void {
+-    if (connected) this.startRetryAttempt = 0
++    if (connected) {
++      this.startRetryAttempt = 0
++      this.projectionConnectStartedAt = Date.now()
++      this.firstFrameLogged = false
++    } else {
++      this.projectionConnectStartedAt = null
++    }
+     this.arbiter.markPhoneConnected(connected, device)
+     this.statusFile.setUsbState(connected, this.arbiter.getSnapshot().dongleDetected)
+   }
+diff --git a/src/main/services/usb/USBService.ts b/src/main/services/usb/USBService.ts
+index f6c5a3f..1c2dc23 100644
+--- a/src/main/services/usb/USBService.ts
++++ b/src/main/services/usb/USBService.ts
+@@ -31,6 +31,7 @@ const APPLE_VENDOR_ID = 0x05ac
+ 
+ export class USBService {
+   private lastDongleState: boolean = false
++  private connectedDongles = new Set<Device>()
+   private lastPhoneState: boolean = false
+   private connectedPhoneDevice: Device | null = null
+   private phoneSuspendUntil = 0
+@@ -64,9 +65,11 @@ export class USBService {
+   }
+ 
+   private async _init(): Promise<void> {
+-    const device = (await usb.getDevices()).find((d) => this.isDongle(d))
+-    if (device) {
++    const devices = (await usb.getDevices()).filter((d) => this.isDongle(d))
++    if (devices.length > 0) {
++      const device = devices[0]
+       console.log('[USBService] Dongle was already connected on startup')
++      devices.forEach((dongle) => this.connectedDongles.add(dongle))
+       this.lastDongleState = true
+       this.projection.markDongleConnected(true)
+       this.notifyDeviceChange(device, true)
+@@ -116,20 +119,25 @@ export class USBService {
+       const device = ev.device as Device
+       if (this.stopped || this.resetInProgress || this.shutdownInProgress) return
+       const isDongleDev = this.isDongle(device)
++      // usb@3 can deliver the same physical attach more than once. Do not
++      // rebroadcast it or kick off a second camera/device scan.
++      if (isDongleDev && this.connectedDongles.has(device)) return
+       console.log(
+         `[USBService] attach vid=0x${device.vendorId?.toString(16) ?? '??'} pid=0x${device.productId?.toString(16) ?? '??'} cls=0x${device.deviceClass?.toString(16) ?? '??'} serial=${device.serialNumber || '-'} → dongle=${isDongleDev} accessory=${isAccessoryMode(device)} phoneCandidate=${this.isPhoneCandidate(device)} lastPhone=${this.lastPhoneState}`
+       )
+       if (!(isDongleDev && this.shouldSuppressDongleEvents())) {
+         this.broadcastGenericUsbEvent({ type: 'attach', device })
+       }
+-      if (isDongleDev && !this.lastDongleState) {
++      if (isDongleDev) {
+         console.log('[USBService] Dongle connected')
++        this.connectedDongles.add(device)
+         this.lastDongleState = true
+-        this.projection.markDongleConnected(true)
+-        if (!this.shouldSuppressDongleEvents()) {
++        const firstDongle = this.connectedDongles.size === 1
++        if (firstDongle) this.projection.markDongleConnected(true)
++        if (firstDongle && !this.shouldSuppressDongleEvents()) {
+           this.notifyDeviceChange(device, true)
+         }
+-        this.projection.autoStartIfNeeded().catch(console.error)
++        if (firstDongle) this.projection.autoStartIfNeeded().catch(console.error)
+         return
+       }
+ 
+@@ -178,14 +186,16 @@ export class USBService {
+       const device = ev.device as Device
+       if (this.stopped || this.resetInProgress || this.shutdownInProgress) return
+       const isDongleDev = this.isDongle(device)
++      const trackedDongle = isDongleDev && this.connectedDongles.delete(device)
++      if (isDongleDev && !trackedDongle && !this.lastDongleState) return
+       if (!(isDongleDev && this.shouldSuppressDongleEvents())) {
+         this.broadcastGenericUsbEvent({ type: 'detach', device })
+       }
+-      if (isDongleDev && this.lastDongleState) {
++      if (isDongleDev) {
+         console.log('[USBService] Dongle disconnected')
+-        this.lastDongleState = false
+-        this.projection.markDongleConnected(false)
+-        if (!this.shouldSuppressDongleEvents()) {
++        this.lastDongleState = this.connectedDongles.size > 0
++        if (!this.lastDongleState) this.projection.markDongleConnected(false)
++        if (!this.lastDongleState && !this.shouldSuppressDongleEvents()) {
+           this.notifyDeviceChange(device, false)
+         }
+         return
+diff --git a/src/main/services/usb/__tests__/USBService.phone.test.ts b/src/main/services/usb/__tests__/USBService.phone.test.ts
+index 896615e..e7f12c4 100644
+--- a/src/main/services/usb/__tests__/USBService.phone.test.ts
++++ b/src/main/services/usb/__tests__/USBService.phone.test.ts
+@@ -165,6 +165,34 @@ describe('USBService — phone attach paths', () => {
+     expect((BrowserWindow.getAllWindows as Mock).mock.results).toEqual(expect.any(Array))
+   })
+ 
++  test('duplicate dongle attach is ignored', async () => {
++    const dongle = {
++      vendorId: 0x1314,
++      productId: 0x1520,
++      deviceClass: 0x00
++    } as never
++    new USBService(projection)
++    connectHandler()(evt(dongle))
++    connectHandler()(evt(dongle))
++    expect(projection.markDongleConnected).toHaveBeenCalledTimes(1)
++    expect(projection.autoStartIfNeeded).toHaveBeenCalledTimes(1)
++  })
++
++  test('disconnecting one of two dongles keeps the projection connected', async () => {
++    const first = { vendorId: 0x1314, productId: 0x1520, deviceClass: 0x00 } as never
++    const second = { vendorId: 0x1314, productId: 0x1520, deviceClass: 0x00 } as never
++    new USBService(projection)
++    connectHandler()(evt(first))
++    connectHandler()(evt(second))
++    disconnectHandler()(evt(first))
++
++    expect(projection.markDongleConnected).toHaveBeenCalledTimes(1)
++    expect(projection.markDongleConnected).toHaveBeenLastCalledWith(true)
++
++    disconnectHandler()(evt(second))
++    expect(projection.markDongleConnected).toHaveBeenLastCalledWith(false)
++  })
++
+   test('attach during stopped state is ignored', async () => {
+     const svc = new USBService(projection)
+     ;(svc as unknown as { stopped: boolean }).stopped = true
 diff --git a/src/main/window/createWindow.ts b/src/main/window/createWindow.ts
 index 2a53300..2d78a3e 100644
 --- a/src/main/window/createWindow.ts
@@ -184,6 +593,41 @@ index b99bd60..0e9a5f2 100644
      </AppLayout>
    )
  }
+diff --git a/src/renderer/src/components/layouts/AppLayout.tsx b/src/renderer/src/components/layouts/AppLayout.tsx
+index 8042521..24d4631 100644
+--- a/src/renderer/src/components/layouts/AppLayout.tsx
++++ b/src/renderer/src/components/layouts/AppLayout.tsx
+@@ -3,7 +3,7 @@ import WifiOffIcon from '@mui/icons-material/WifiOff'
+ import Box from '@mui/material/Box'
+ import { useTheme } from '@mui/material/styles'
+ import Typography from '@mui/material/Typography'
+-import { useLiviStore, useStatusStore } from '@store/store'
++import { useLiviStore } from '@store/store'
+ import { FC, PropsWithChildren, useCallback } from 'react'
+ import { useLocation } from 'react-router'
+ import { ROUTES, UI } from '../../constants'
+@@ -23,7 +23,6 @@ export const AppLayout: FC<PropsWithChildren<AppLayoutProps>> = ({
+ }) => {
+   const { pathname } = useLocation()
+   const settings = useLiviStore((s) => s.settings)
+-  const isStreaming = useStatusStore((s) => s.isStreaming)
+   const time = useBlinkingTime()
+   const network = useNetworkStatus()
+   const theme = useTheme()
+diff --git a/src/renderer/src/components/layouts/__tests__/AppLayout.test.tsx b/src/renderer/src/components/layouts/__tests__/AppLayout.test.tsx
+index ab713ac..4a5e070 100644
+--- a/src/renderer/src/components/layouts/__tests__/AppLayout.test.tsx
++++ b/src/renderer/src/components/layouts/__tests__/AppLayout.test.tsx
+@@ -175,7 +175,8 @@ describe('AppLayout', () => {
+       vi.advanceTimersByTime(3000)
+     })
+ 
+-    expect(container.querySelector('#content-root')?.getAttribute('data-nav-hidden')).toBe('0')
++    // Home is the shared Td5/CarPlay surface, whose own controls replace Nav.
++    expect(container.querySelector('#content-root')?.getAttribute('data-nav-hidden')).toBe('1')
+   })
+ 
+   test('uses compact icons and a smaller clock at extra-small heights', async () => {
 diff --git a/src/renderer/src/components/pages/projection/IdleDashboard.tsx b/src/renderer/src/components/pages/projection/IdleDashboard.tsx
 new file mode 100644
 index 0000000..0c91849
@@ -507,10 +951,10 @@ index 906cabf..abbb47b 100644
        <div
          id="videoContainer"
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..f0734b0 100644
+index 2304492..250e8b9 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-@@ -3,22 +3,100 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
+@@ -3,22 +3,99 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
  
  type Td5Live = {
    status?: string
@@ -580,7 +1024,6 @@ index 2304492..f0734b0 100644
 +  const value = Math.max(0, Math.round(seconds ?? 0))
 +  return `${Math.floor(value / 3600)}:${String(Math.floor(value / 60) % 60).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
 +}
-+const clock = (timestamp?: number) => timestamp ? new Date(timestamp * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : '—'
 +const linePoints = (values: Array<number | null | undefined>) => {
 +  const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
 +  if (usable.length < 2) return ''
@@ -611,7 +1054,7 @@ index 2304492..f0734b0 100644
  
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
-@@ -37,28 +115,19 @@ function warningTone(value: number | null | undefined, warning: number, danger:
+@@ -37,28 +114,22 @@ function warningTone(value: number | null | undefined, warning: number, danger:
  
  function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
    if (value == null) return '#eef3ea'
@@ -644,10 +1087,13 @@ index 2304492..f0734b0 100644
 +  const [dtcReadBusy, setDtcReadBusy] = useState(false)
 +  const [identityReadBusy, setIdentityReadBusy] = useState(false)
 +  const [absReadBusy, setAbsReadBusy] = useState(false)
++  const [confirmPowerOff, setConfirmPowerOff] = useState(false)
++  const [poweringOff, setPoweringOff] = useState(false)
++  const [powerOffFailed, setPowerOffFailed] = useState(false)
  
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +149,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +151,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
  
@@ -691,7 +1137,7 @@ index 2304492..f0734b0 100644
  
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +216,83 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +218,94 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
  
    if (!visible) return null
@@ -732,6 +1178,17 @@ index 2304492..f0734b0 100644
 +      // The current status and the result/error are shown by the read-only API.
 +    } finally {
 +      window.setTimeout(() => setAbsReadBusy(false), 30000)
++    }
++  }
++  const requestPowerOff = async () => {
++    if (poweringOff) return
++    setPowerOffFailed(false)
++    setPoweringOff(true)
++    try {
++      await window.app.quitApp()
++    } catch {
++      setPoweringOff(false)
++      setPowerOffFailed(true)
 +    }
    }
    const metric = (label: string, value: string, unit: string, tone = '#eef3ea') => (
@@ -779,11 +1236,13 @@ index 2304492..f0734b0 100644
      </article>
    )
  
-@@ -142,50 +307,101 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -141,53 +319,128 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+         fontFamily: 'Td5 Manrope, Arial, Helvetica, sans-serif', fontStyle: 'normal', fontWeight: 700, fontVariantNumeric: 'tabular-nums'
        }}
      >
-       <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
+-      <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
 -      <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 58, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
++      <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}@keyframes td5-power-spin{to{transform:rotate(360deg)}}`}</style>
 +      <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
          <div style={{ display: 'grid', gap: 7 }}>
            <button
@@ -798,6 +1257,10 @@ index 2304492..f0734b0 100644
 +            type="button" aria-label="Öppna Td5-meny" onClick={() => setMenu((open) => { const next = !open; if (next) setMenuLevel('main'); return next })}
 +            style={{ width: 80, height: 70, border: '1px solid #ffffff22', borderRadius: 18, background: '#ffffff0c', color: '#eef3ea', fontSize: 42 }}
            >☰</button>
++          <button
++            type="button" aria-label="Stäng av systemet" onClick={() => setConfirmPowerOff(true)}
++            style={{ width: 80, height: 70, border: '1px solid #f4544c66', borderRadius: 18, background: '#f4544c18', color: '#f7827d', display: 'grid', placeItems: 'center' }}
++          ><svg aria-hidden="true" width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 2v10" /><path d="M6.35 5.65a8 8 0 1 0 11.3 0" /></svg></button>
          </div>
        </header>
 -      {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 80, minHeight: 42, padding: '10px 16px', borderRadius: 13, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 15, fontWeight: 800, letterSpacing: '.06em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
@@ -907,4 +1370,193 @@ index 2304492..f0734b0 100644
 +          </>}
          </aside>
        )}
++      {confirmPowerOff && (
++        <div role="dialog" aria-modal="true" aria-labelledby="td5-power-title" style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'grid', placeItems: 'center', padding: 28, background: '#050706dc', backdropFilter: 'blur(6px)' }}>
++          <div style={{ width: '100%', maxWidth: 510, padding: 28, border: '1px solid #ffffff26', borderRadius: 22, background: '#171c19', boxShadow: '0 24px 70px #000' }}>
++            {poweringOff ? <>
++              <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
++                <div aria-hidden="true" style={{ width: 40, height: 40, flex: '0 0 auto', border: '4px solid #ffffff25', borderTopColor: '#b8d699', borderRadius: '50%', animation: 'td5-power-spin .8s linear infinite' }} />
++                <div id="td5-power-title" role="status" aria-live="assertive" style={{ color: '#eef3ea', fontSize: 31, fontWeight: 800, letterSpacing: '.025em' }}>STÄNGER AV SYSTEMET…</div>
++              </div>
++              <div style={{ marginTop: 18, color: '#b8c2b7', fontSize: 19, lineHeight: 1.35 }}>Avstängningen är bekräftad. Vänta tills skärmen har slocknat innan strömmen bryts.</div>
++            </> : <>
++              <div id="td5-power-title" style={{ color: '#eef3ea', fontSize: 31, fontWeight: 800, letterSpacing: '.025em' }}>{powerOffFailed ? 'AVSTÄNGNINGEN MISSLYCKADES' : 'STÄNG AV SYSTEMET?'}</div>
++              <div style={{ marginTop: 12, color: powerOffFailed ? '#f7827d' : '#b8c2b7', fontSize: 19, lineHeight: 1.35 }}>{powerOffFailed ? 'Systemet kunde inte starta en säker avstängning. Försök igen eller avbryt.' : 'Gauge och LIVI avslutas och Raspberry Pi stängs av säkert.'}</div>
++              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 26 }}>
++                <button type="button" onClick={() => { setConfirmPowerOff(false); setPowerOffFailed(false) }} style={{ minHeight: 64, border: '1px solid #ffffff28', borderRadius: 16, background: '#ffffff0d', color: '#eef3ea', fontSize: 20, fontWeight: 800 }}>AVBRYT</button>
++                <button type="button" onClick={() => void requestPowerOff()} style={{ minHeight: 64, border: 0, borderRadius: 16, background: '#d9433d', color: '#fff', fontSize: 20, fontWeight: 800 }}>{powerOffFailed ? 'FÖRSÖK IGEN' : 'STÄNG AV'}</button>
++              </div>
++            </>}
++          </div>
++        </div>
++      )}
      </section>
+   )
+ }
+diff --git a/src/renderer/src/components/secondaryWindow/SecondaryAppShell.tsx b/src/renderer/src/components/secondaryWindow/SecondaryAppShell.tsx
+index d5b5aa9..b190e6e 100644
+--- a/src/renderer/src/components/secondaryWindow/SecondaryAppShell.tsx
++++ b/src/renderer/src/components/secondaryWindow/SecondaryAppShell.tsx
+@@ -1,7 +1,7 @@
+ import { Box, Typography } from '@mui/material'
+ import type { WindowId } from '@shared/types'
+ import { isClusterOnScreen } from '@shared/utils'
+-import { useEffect, useRef } from 'react'
++import { lazy, Suspense, useEffect, useRef } from 'react'
+ import { MemoryRouter, Route, Routes } from 'react-router'
+ import { ROUTES } from '../../constants'
+ import type { BindKey } from '../../hooks/keysControl/types'
+@@ -9,10 +9,11 @@ import { useFftPcm } from '../../hooks/useFftPcm'
+ import { useLiviStore, useStatusStore } from '../../store/store'
+ import { broadcastMediaKey } from '../../utils/broadcastMediaKey'
+ import { AppLayout } from '../layouts/AppLayout'
+-import { Camera } from '../pages/camera'
+ import { Cluster } from '../pages/cluster/Cluster'
+-import { Media } from '../pages/media'
+-import { Telemetry } from '../pages/telemetry'
++
++const Camera = lazy(async () => ({ default: (await import('../pages/camera')).Camera }))
++const Media = lazy(async () => ({ default: (await import('../pages/media')).Media }))
++const Telemetry = lazy(async () => ({ default: (await import('../pages/telemetry')).Telemetry }))
+ 
+ const TRANSPORT_ACTIONS: BindKey[] = [
+   'next',
+@@ -163,12 +164,14 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
+       {hasClusterDash && settings && (
+         <Cluster visible={clusterDashActive} showLoadingPlaceholder={!clusterDashActive} />
+       )}
+-      <Routes>
+-        <Route path={ROUTES.TELEMETRY} element={<Telemetry windowRole={role} />} />
+-        <Route path={ROUTES.MEDIA} element={<Media forceHydrate />} />
+-        <Route path={ROUTES.CAMERA} element={<Camera />} />
+-        <Route path="*" element={null} />
+-      </Routes>
++      <Suspense fallback={<Box sx={{ width: '100%', height: '100%', bgcolor: '#000' }} />}>
++        <Routes>
++          <Route path={ROUTES.TELEMETRY} element={<Telemetry windowRole={role} />} />
++          <Route path={ROUTES.MEDIA} element={<Media forceHydrate />} />
++          <Route path={ROUTES.CAMERA} element={<Camera />} />
++          <Route path="*" element={null} />
++        </Routes>
++      </Suspense>
+     </AppLayout>
+   )
+ }
+diff --git a/src/renderer/src/components/secondaryWindow/__tests__/SecondaryAppShell.test.tsx b/src/renderer/src/components/secondaryWindow/__tests__/SecondaryAppShell.test.tsx
+index 3f1fedf..baf9520 100644
+--- a/src/renderer/src/components/secondaryWindow/__tests__/SecondaryAppShell.test.tsx
++++ b/src/renderer/src/components/secondaryWindow/__tests__/SecondaryAppShell.test.tsx
+@@ -88,7 +88,7 @@ describe('SecondaryAppShell — initial route selection', () => {
+     state.settings = { dashboards: { dash3: { dash: true } } }
+     await renderShell('dash')
+     // Cluster dash is also a dashboard slot, so the initial route is telemetry.
+-    expect(screen.getByTestId('telemetry-page')).toHaveAttribute('data-role', 'dash')
++    expect(await screen.findByTestId('telemetry-page')).toHaveAttribute('data-role', 'dash')
+     expect(screen.getByTestId('cluster-page')).toBeInTheDocument()
+   })
+ 
+@@ -103,13 +103,13 @@ describe('SecondaryAppShell — initial route selection', () => {
+   test('media routes when only media is enabled', async () => {
+     state.settings = { media: { dash: true } }
+     await renderShell('dash')
+-    expect(screen.getByTestId('media-page')).toHaveAttribute('data-hydrate', 'true')
++    expect(await screen.findByTestId('media-page')).toHaveAttribute('data-hydrate', 'true')
+   })
+ 
+   test('camera routes when only camera is enabled', async () => {
+     state.settings = { camera: { dash: true } }
+     await renderShell('dash')
+-    expect(screen.getByTestId('camera-page')).toBeInTheDocument()
++    expect(await screen.findByTestId('camera-page')).toBeInTheDocument()
+   })
+ 
+   test('cluster overlay visibility follows clusterDashActive', async () => {
+diff --git a/src/renderer/src/routes/appRoutes.tsx b/src/renderer/src/routes/appRoutes.tsx
+index a07c7e4..d956f12 100644
+--- a/src/renderer/src/routes/appRoutes.tsx
++++ b/src/renderer/src/routes/appRoutes.tsx
+@@ -1,9 +1,20 @@
++import { lazy, Suspense, type ReactNode } from 'react'
+ import { Layout } from '../components/layouts/Layout'
+-import { Camera, Home, Media, Telemetry } from '../components/pages'
+-import { SettingsPage } from '../components/pages/settings/SettingsPage'
+ import { settingsRoutes } from './schemas/schema'
+ import { RoutePath } from './types'
+ 
++const Camera = lazy(async () => ({ default: (await import('../components/pages/camera')).Camera }))
++const Home = lazy(async () => ({ default: (await import('../components/pages/home')).Home }))
++const Media = lazy(async () => ({ default: (await import('../components/pages/media')).Media }))
++const SettingsPage = lazy(async () => ({
++  default: (await import('../components/pages/settings/SettingsPage')).SettingsPage
++}))
++const Telemetry = lazy(async () => ({
++  default: (await import('../components/pages/telemetry')).Telemetry
++}))
++
++const deferred = (page: ReactNode) => <Suspense fallback={null}>{page}</Suspense>
++
+ export const appRoutes = [
+   {
+     path: '/',
+@@ -11,11 +22,11 @@ export const appRoutes = [
+     children: [
+       {
+         path: `/${RoutePath.Home}`,
+-        element: <Home />
++        element: deferred(<Home />)
+       },
+       {
+         path: `/${RoutePath.Telemetry}`,
+-        element: <Telemetry />
++        element: deferred(<Telemetry />)
+       },
+       {
+         path: `/${RoutePath.Cluster}`,
+@@ -23,15 +34,15 @@ export const appRoutes = [
+       },
+       {
+         path: `/${RoutePath.Media}`,
+-        element: <Media />
++        element: deferred(<Media />)
+       },
+       {
+         path: `/${RoutePath.Camera}`,
+-        element: <Camera />
++        element: deferred(<Camera />)
+       },
+       {
+         path: `/${RoutePath.Settings}/*`,
+-        element: <SettingsPage />,
++        element: deferred(<SettingsPage />),
+         children: settingsRoutes?.children ?? []
+       }
+     ]
+diff --git a/src/renderer/src/utils/generateRoutes.tsx b/src/renderer/src/utils/generateRoutes.tsx
+index bdd5aa5..d7b1479 100644
+--- a/src/renderer/src/utils/generateRoutes.tsx
++++ b/src/renderer/src/utils/generateRoutes.tsx
+@@ -1,14 +1,22 @@
+ import type { Config } from '@shared/types'
++import { lazy, Suspense } from 'react'
+ import { RouteObject } from 'react-router'
+-import { SettingsPage } from '../components/pages/settings/SettingsPage'
+ import { SettingsNode } from '../routes'
+ 
++const SettingsPage = lazy(async () => ({
++  default: (await import('../components/pages/settings/SettingsPage')).SettingsPage
++}))
++
+ export const generateRoutes = (node: SettingsNode<Config>): RouteObject | null => {
+   if (node.type !== 'route') return null
+ 
+   return {
+     path: node.route,
+-    element: <SettingsPage />,
++    element: (
++      <Suspense fallback={null}>
++        <SettingsPage />
++      </Suspense>
++    ),
+     children: node.children?.map(generateRoutes).filter((r): r is RouteObject => !!r)
+   }
+ }

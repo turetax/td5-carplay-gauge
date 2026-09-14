@@ -21,11 +21,20 @@ if [ -z "${WAYLAND_DISPLAY:-}" ]; then
   WAYLAND_DISPLAY="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -printf '%T@ %f\n' | sort -n | awk 'NR == 1 { print $2 }')"
   export WAYLAND_DISPLAY
 fi
-readonly PROJECT_DIR="${TD5_PROJECT_DIR:-$HOME/td5gauge}"
-readonly LIVI_DIR="${TD5_LIVI_DIR:-$PROJECT_DIR/third_party/LIVI}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/package.json" ] && [ -d "$SCRIPT_DIR/node_modules" ]; then
+  # Standalone source checkout, as used by the installed Pi.
+  readonly PROJECT_DIR="${TD5_PROJECT_DIR:-$SCRIPT_DIR}"
+  readonly LIVI_DIR="${TD5_LIVI_DIR:-$SCRIPT_DIR}"
+else
+  readonly PROJECT_DIR="${TD5_PROJECT_DIR:-$HOME/td5gauge}"
+  readonly LIVI_DIR="${TD5_LIVI_DIR:-$PROJECT_DIR/third_party/LIVI}"
+fi
 export PATH="$HOME/.local/node-current/bin:$PATH"
-export APPIMAGE="$PROJECT_DIR/livi-source-launcher.sh"
+export APPIMAGE="$LIVI_DIR/livi-source-launcher.sh"
 export LIVI_EMBEDDED=1
+export LIVI_KIOSK=1
+readonly ELECTRON_VIDEO_ARGS="--ozone-platform=wayland --disable-features=Vulkan"
 
 cd "$LIVI_DIR"
 
@@ -33,7 +42,7 @@ cd "$LIVI_DIR"
 # source-built Electron launch as a development/recovery fallback.
 if [ -n "${TD5_LIVI_EXECUTABLE:-}" ] && [ -x "$TD5_LIVI_EXECUTABLE" ]; then
   boot_log "starting production executable $TD5_LIVI_EXECUTABLE"
-  exec "$TD5_LIVI_EXECUTABLE" --ozone-platform=wayland
+  exec "$TD5_LIVI_EXECUTABLE" $ELECTRON_VIDEO_ARGS
 fi
 
 for executable in "$LIVI_DIR"/dist/LIVI-*-linux-arm64.AppImage \
@@ -41,9 +50,9 @@ for executable in "$LIVI_DIR"/dist/LIVI-*-linux-arm64.AppImage \
   "$LIVI_DIR/dist/linux-arm64-unpacked/LIVI"; do
   if [ -x "$executable" ]; then
     boot_log "starting packaged production executable $executable"
-    exec "$executable" --ozone-platform=wayland
+    exec "$executable" $ELECTRON_VIDEO_ARGS
   fi
 done
 
 boot_log "starting source-build fallback"
-exec ./node_modules/.bin/electron . --ozone-platform=wayland
+exec ./node_modules/.bin/electron . $ELECTRON_VIDEO_ARGS

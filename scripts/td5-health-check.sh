@@ -33,3 +33,22 @@ if command -v journalctl >/dev/null 2>&1; then
   printf '%s\n' '• Senaste startmätpunkter:'
   journalctl -b --no-pager -o short-monotonic -t td5-livi -t td5-gateway 2>/dev/null | tail -n 12 || true
 fi
+
+if command -v vcgencmd >/dev/null 2>&1; then
+  throttle_raw="$(vcgencmd get_throttled 2>/dev/null || true)"
+  throttle_hex="${throttle_raw#*=}"
+  case "$throttle_hex" in
+    0x*)
+      throttle_value=$((throttle_hex))
+      if [ $((throttle_value & 1)) -ne 0 ]; then
+        printf '%s\n' '✗ UNDERVOLTAGE NU — byt nätaggregat/kabel innan fortsatt belastning'
+      elif [ $((throttle_value & 4)) -ne 0 ]; then
+        printf '%s\n' '✗ Pajen är strypt just nu; kontrollera ström och temperatur'
+      elif [ $((throttle_value & 0x50000)) -ne 0 ]; then
+        printf '%s\n' '• Underspänning/strypning har inträffat sedan senaste uppstart'
+      else
+        printf '%s\n' '✓ Ingen underspänning eller strypning registrerad'
+      fi
+      ;;
+  esac
+fi

@@ -12,9 +12,9 @@ import trimesh
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTDIR = ROOT / "3d print"
-SCREEN_OUT = OUTDIR / "Defender_EP0189_utan_armfasten_kabeloppningar_V21.stl"
+SCREEN_OUT = OUTDIR / "Defender_EP0189_matchande_skarmgavlar_V56.stl"
 BOX_OUT = OUTDIR / "Defender_relabox_rela_vanster_V15.stl"
-LID_OUT = OUTDIR / "Defender_relabox_lock_utan_armar_V24.stl"
+LID_OUT = OUTDIR / "Defender_relabox_lock_fast_skarm_90grad_V25.stl"
 ANGLE_OUT = OUTDIR / "Defender_relabox_lutningsadapter_42deg_V5.stl"
 
 SCREEN_W, SCREEN_H = 276.29, 76.50
@@ -229,9 +229,10 @@ def keep_largest_face_component(mesh):
     return mesh
 
 
-def convex_wing(x0,x1,outer_side,y0=-35.0,y1=35.0,nx=28,ny=16):
+def convex_wing(x0,x1,outer_side,y0=-35.0,y1=35.0,nx=28,ny=16,
+                base_z=GLUE_Z0,rise=15.0):
     """Wing with 0->15 mm clearance over the first 15 mm from screen edges."""
-    screen_edge_rear=GLUE_Z0
+    screen_edge_rear=base_z
     plate_t=2.4
     verts=[]
     for zside in (0,1):
@@ -243,7 +244,7 @@ def convex_wing(x0,x1,outer_side,y0=-35.0,y1=35.0,nx=28,ny=16):
                 edge_distance=max(0.0,min(dx,y-y0,y1-y))
                 t=min(1.0,edge_distance/15.0)
                 # Raised cosine: tangent at both 0 and 15 mm endpoints.
-                clearance=15.0*(1.0-np.cos(np.pi*t))/2.0
+                clearance=rise*(1.0-np.cos(np.pi*t))/2.0
                 front_z=screen_edge_rear+clearance
                 verts.append((x,y,front_z if zside==0 else front_z+plate_t))
     layer=(nx+1)*(ny+1); faces=[]
@@ -282,7 +283,7 @@ def finish(mesh, path):
     print(f"  extents={mesh.extents.tolist()}")
 
 
-def screen_carrier():
+def screen_carrier(hood_z_shift=0.0,include_wings=True):
     # A thin hidden glue/contact rim. The curved wings supply the increasing
     # clearance; the outer edge itself has zero free space behind the display.
     shell = rounded_ring(PRINT_W,PRINT_H,CORNER_R,
@@ -292,24 +293,25 @@ def screen_carrier():
 
     # Four broad glue pads sit only at the thin rear corners. The centre stays
     # clear until Z=15.3 for the thicker display body.
+    # The four former internal glue/corner blocks are intentionally removed.
     pads=[]
-    for x in (-122,122):
-        for y in (-29,29):
-            pads.append(box((25,11,3.0),(x,y,GLUE_Z0+1.5)))
 
     # Two smoothly convex covers over the thin left/right display areas. The
     # centre is absent, leaving a fully open path from display rear to Pi space.
-    left_wing=convex_wing(-135.5,-51.5,"left")
-    right_wing=convex_wing(71.5,135.5,"right")
+    wing_parts=[]
+    if include_wings:
+        wing_parts=[convex_wing(-135.5,-51.5,"left"),
+                    convex_wing(71.5,135.5,"right")]
 
     # The Pi hood starts only after the full 15.3 mm display installation
     # envelope. No hood wall may enter the space needed to insert the screen.
-    hood_z0=SCREEN_BODY_REAR
-    hood_outer = box((PI_HOOD_W,PI_HOOD_H,SCREEN_COVER_REAR-hood_z0),
-                     (10.0,0,(hood_z0+SCREEN_COVER_REAR)/2))
+    hood_z0=SCREEN_BODY_REAR+hood_z_shift
+    hood_z1=SCREEN_COVER_REAR+hood_z_shift
+    hood_outer = box((PI_HOOD_W,PI_HOOD_H,hood_z1-hood_z0),
+                     (10.0,0,(hood_z0+hood_z1)/2))
     # Cutter starts ahead of the hood: no plastic remains between screen and Pi.
     hood_inner_z0=hood_z0-1.0
-    hood_inner_z1=SCREEN_COVER_REAR-WALL
+    hood_inner_z1=hood_z1-WALL
     hood_inner = box((PI_HOOD_W-2*WALL,PI_HOOD_H-2*WALL,
                       hood_inner_z1-hood_inner_z0),
                      (10.0,0,(hood_inner_z0+hood_inner_z1)/2))
@@ -321,12 +323,17 @@ def screen_carrier():
     # Z=42, retaining material around both structural screw locations.
     # Positive model X is vehicle-left in the installed, rear-facing screen
     # orientation.  (The previous V17 incorrectly used screen-view left.)
-    usb_left_service = box((16.0,60.0,18.0),(72.5,0.0,27.0))
+    # Rebuilt vehicle-left Pi end wall with one local USB-A access opening at
+    # the Pi's lower-left corner.  Clear size is 20 x 18 mm for a moulded plug.
+    usb_left_service = box((16.0,20.0,18.0),
+                           (72.5,-24.0,27.0+hood_z_shift))
     # Pi USB-C power and both micro-HDMI sockets face the display lower edge.
     # Two depthwise windows give moulded plugs and the short screen-to-Pi
     # jumpers room to turn.  A 2 mm web remains between the openings.
-    usb_c_lower_service = box((16.0,14.0,38.0),(-36.0,-35.0,31.0))
-    micro_hdmi_lower_service = box((32.0,14.0,38.0),(-10.0,-35.0,31.0))
+    usb_c_lower_service = box((16.0,14.0,38.0),
+                              (-36.0,-35.0,31.0+hood_z_shift))
+    micro_hdmi_lower_service = box((32.0,14.0,38.0),
+                                   (-10.0,-35.0,31.0+hood_z_shift))
     pi_hood = trimesh.boolean.difference([pi_hood,usb_left_service,
                                           usb_c_lower_service,
                                           micro_hdmi_lower_service],
@@ -337,29 +344,346 @@ def screen_carrier():
     vents=[]
     for y in (-22,-11,0,11,22):
         for x in (-108,-90,-72,-12,6,24,42,60,78,96):
-            vents.append(box((12,2.2,5.0),(x,y,SCREEN_COVER_REAR-1.5)))
+            vents.append(box((12,2.2,5.0),(x,y,hood_z1-1.5)))
 
     # Mating cable windows face directly into the electrical box.
     cuts=[box((POWER_WH[0],POWER_WH[1],7.0),
-              (POWER_C[0],POWER_C[1],SCREEN_COVER_REAR-1.5)),
+              (POWER_C[0],POWER_C[1],hood_z1-1.5)),
           box((SIGNAL_WH[0],SIGNAL_WH[1],7.0),
-              (SIGNAL_C[0],SIGNAL_C[1],SCREEN_COVER_REAR-1.5))]
+              (SIGNAL_C[0],SIGNAL_C[1],hood_z1-1.5))]
 
     # No arm lugs in this measurement prototype.  The user will print the
     # clean screen/Pi enclosure and draw the required arm geometry by hand.
     mount_bosses=[]; mount_holes=[]
 
-    # Small hidden vents through the convex wings.
+    # Former through-vents in the thin side wings produced four visible hole
+    # groups along the enclosure edges.  They are removed/closed in this fit
+    # version; rear Pi-roof ventilation remains available.
     wing_vents=[]
-    for x in (-110,-90,90,110):
-        for y in (-15,0,15):
-            wing_vents.append(box((12,2.0,24.0),(x,y,12.0)))
 
-    solid=trimesh.boolean.union([shell,left_wing,right_wing,pi_hood,
+    solid=trimesh.boolean.union([shell,*wing_parts,pi_hood,
                                  *pads,*mount_bosses],
                                 engine="manifold",check_volume=False)
     return trimesh.boolean.difference([solid,*vents,*wing_vents,*cuts,*mount_holes],
                                       engine="manifold",check_volume=False)
+
+
+def screen_carrier_v21_plus5(include_wings=True):
+    """Arm-free V21 with 5 mm collar and Pi box lowered to meet its wings.
+
+    The connector openings share the Pi-box local shift, avoiding any mismatch
+    between enclosure and cable cut-outs.
+    """
+    rear=screen_carrier(hood_z_shift=-5.0,include_wings=include_wings)
+    rear.apply_translation((0.0,0.0,5.0))
+    # 0.2 mm overlap with the translated V21 front ring makes a robust single
+    # manifold while the functional extension remains 5.0 mm.
+    collar=rounded_ring(PRINT_W,PRINT_H,CORNER_R,
+                        PRINT_W-2*WALL,PRINT_H-2*WALL,
+                        max(1.0,CORNER_R-WALL),5.2,GLUE_Z0)
+
+    # Fill the visible 6.9 mm air gap between the extended front collar and
+    # all four lower edges of the Pi hood.  This is a hollow perimeter skirt,
+    # not a floor: the screen/Pi installation volume remains open internally.
+    skirt_z0=GLUE_Z0+5.0-0.2       # overlaps collar by 0.2 mm
+    skirt_z1=SCREEN_BODY_REAR+0.2  # overlaps lowered Pi hood by 0.2 mm
+    skirt_outer=box((PI_HOOD_W,PI_HOOD_H,skirt_z1-skirt_z0),
+                    (10.0,0.0,(skirt_z0+skirt_z1)/2))
+    skirt_inner=box((PI_HOOD_W-2*WALL,PI_HOOD_H-2*WALL,
+                     skirt_z1-skirt_z0+2.0),
+                    (10.0,0.0,(skirt_z0+skirt_z1)/2))
+    skirt=trimesh.boolean.difference([skirt_outer,skirt_inner],
+                                     engine="manifold",check_volume=False)
+
+    # Exact V37 corner joins.
+    corner_fills=[box((8.0,8.0,skirt_z1-skirt_z0),
+                      (x,y,(skirt_z0+skirt_z1)/2))
+                  for x in (-50.5,70.5) for y in (-33.0,33.0)]
+    solid=trimesh.boolean.union([collar,rear,skirt,*corner_fills],engine="manifold",
+                                check_volume=False)
+    # Re-open the V21 lower USB-C and micro-HDMI paths through the new skirt.
+    lower_cuts=[box((16.0,14.0,38.0),(-36.0,-35.0,31.0)),
+                box((32.0,14.0,38.0),(-10.0,-35.0,31.0)),
+                # Local USB-A opening in the rebuilt end wall.  Its Z range is
+                # above the joining skirt, which therefore remains continuous.
+                box((16.0,20.0,18.0),(72.5,-24.0,27.0)),
+                # Remove only the forward extension of this gable from the
+                # display installation volume. The actual Pi gable begins at
+                # Z=15.3 and remains closed around the USB-A service opening.
+                box((3.2,PI_HOOD_H-2*WALL,15.4),(71.1,0.0,7.7)),
+                # Matching relief on the opposite Pi-box gable.
+                box((3.2,PI_HOOD_H-2*WALL,15.4),(-51.1,0.0,7.7))]
+    # Globally clear every hidden ledge/triangle inside the screen installation
+    # volume. Unlike the rejected V35 cut, this stops at the back of the 5 mm
+    # front extension and preserves a continuous 3 mm perimeter plus all rear
+    # side/Pi enclosure geometry.
+    # Front-view datum: +X is screen-right. Increase total clear height 1 mm
+    # and move only the right boundary 4 mm outward (width +4, centre +2).
+    # Extend the cutter through the full display-body depth to leave one smooth
+    # uninterrupted installation surface with no ledges or triangular remnants.
+    screen_clearance=rounded_prism(PRINT_W-2*WALL+4.0,
+                                    PRINT_H-2*WALL+1.0,
+                                    max(1.0,CORNER_R-WALL),
+                                    SCREEN_BODY_REAR+0.05,0.0)
+    screen_clearance.apply_translation((2.0,0.0,0.0))
+    lower_cuts.append(screen_clearance)
+    return trimesh.boolean.difference([solid,*lower_cuts],engine="manifold",
+                                      check_volume=False)
+
+
+def screen_carrier_v37_fixed_90():
+    """V37 screen case with two fixed 90-degree feet and four M4 inserts."""
+    # Build the structural V37 base without its legacy convex wings. A single
+    # definitive pair is added below, preventing doubled inner/outer skins.
+    base=screen_carrier_v21_plus5(include_wings=False)
+    feet=[]; insert_pockets=[]
+    # Feet sit at the Pi-shell outer corners, clear of the lower USB-C/HDMI
+    # windows. In the 90-degree installation their Y=-38 faces sit flat on lid.
+    for x in (-48.0,68.0):
+        feet.append(box((12.0,6.0,36.0),(x,-35.0,32.0)))
+        for z in (23.0,41.0):
+            # Blind 5.5 mm M4 heat-insert pocket opening from the lid side.
+            insert_pockets.append(cyl_y(M4_INSERT_PILOT/2,5.5,
+                                        (x,-36.25,z)))
+    # Do not rebuild either Pi end wall ahead of SCREEN_BODY_REAR. Those wall
+    # portions are inside the display insertion envelope and must stay absent.
+    solid=trimesh.boolean.union([base,*feet],engine="manifold",
+                                check_volume=False)
+    # One exact rectangular Pi cavity removes any feet/corner/boolean remnants
+    # from the component volume while retaining the nominal 2.8 mm hood walls.
+    pi_clear=box((PI_HOOD_W-2*WALL,PI_HOOD_H-2*WALL,
+                  (SCREEN_COVER_REAR-WALL)-SCREEN_BODY_REAR+0.2),
+                 (10.0,0.0,
+                  (SCREEN_BODY_REAR+SCREEN_COVER_REAR-WALL)/2))
+    cleaned=trimesh.boolean.difference([solid,*insert_pockets,pi_clear],
+                                       engine="manifold",check_volume=False)
+
+    # Restore the rounded/convex gable design on both sides. The front-view
+    # right wing is widened so its inside face can sit 2.0 mm beyond the
+    # measured screen-back edge; its final outer 1.2 mm forms the gable.
+    right_inner=140.1
+    right_outer=141.3
+    # The convex skin starts directly at the 6 mm screen mounting edge and
+    # continues without an intermediate ledge to the unchanged rear envelope.
+    cover_z0=6.0
+    # Preserve the V46/V52 maximum side-cover depth of 25.6 mm:
+    # 6.0 + 17.2 + 2.4 mm wall = 25.6 mm.
+    compact_rise=17.2
+    convex_sides=[convex_wing(-136.9,-51.5,"left",base_z=cover_z0,
+                              rise=compact_rise),
+                  convex_wing(71.5,right_outer,"right",base_z=cover_z0,
+                              rise=compact_rise)]
+
+
+    # Thin front connector under the widened right convex end. It overlaps the
+    # original collar and is hidden behind the display.
+    right_join=box((right_outer-135.0,PRINT_H-2.0,5.2),
+                   ((135.0+right_outer)/2,0.0,GLUE_Z0+2.6))
+    # Local left connection overlaps the existing hidden collar while keeping
+    # its established outer line. The exposed end profile still matches the
+    # right cap, without widening the frameless assembly.
+    left_join=box((1.9,PRINT_H-2.0,5.2),
+                  (-135.95,0.0,GLUE_Z0+2.6))
+    restored_core=trimesh.boolean.union([cleaned,left_join,right_join],
+                                        engine="manifold",check_volume=False)
+
+    # Preserve the left datum while enlarging only front-view right: the new
+    # boundary is x=140.1, exactly 2.0 mm beyond the screen-back edge x=138.1.
+    # This cut also guarantees that no convex material intrudes into the gap.
+    right_gap_clearance=rounded_prism(274.2,PRINT_H-2*WALL+1.0,
+                                      max(1.0,CORNER_R-WALL),
+                                      SCREEN_BODY_REAR+0.05,0.0)
+    right_gap_clearance.apply_translation((3.0,0.0,0.0))
+    cleared_core=trimesh.boolean.difference([restored_core,right_gap_clearance],
+                                            engine="manifold",check_volume=False)
+    # Seal the four small exterior corner gaps where the Pi end walls meet the
+    # convex backs. These live beyond the screen opening (|Y| >= 34.6), so the
+    # inside installation volume remains perfectly unobstructed.
+    seam_fills=[]
+    seam_y=35.3
+    seam_h=1.4
+    seam_z0=GLUE_Z0+5.0
+    seam_z1=SCREEN_BODY_REAR+0.4
+    for x in (-51.5,71.5):
+        for y in (-seam_y,seam_y):
+            seam_fills.append(box((4.0,seam_h,seam_z1-seam_z0),
+                                  (x,y,(seam_z0+seam_z1)/2)))
+    # Add the uninterrupted convex skins after clearing the rigid core; cutting
+    # them afterwards would recreate the unwanted ledge halfway up the form.
+    return trimesh.boolean.union([cleared_core,*convex_sides,*seam_fills],
+                                 engine="manifold",check_volume=False)
+
+
+def measured_screen_carrier():
+    """Arm-free fit prototype rebuilt from measurements of the real rear.
+
+    Coordinates supplied by the user are measured from the display's left and
+    lower edges while looking at the rear of the display.
+    """
+    left=-SCREEN_W/2
+    bottom=-SCREEN_H/2
+    # Extend the screen-contact collar 5 mm before any rear enclosure begins.
+    # This preserves the V22 rear forms but moves them clear of the real screen.
+    fit_extension=5.0
+    case_z0=GLUE_Z0+fit_extension
+
+    # Only this thin perimeter is glued to the display.  No former convex wing
+    # geometry remains to bottom out on the actual metal/fabric rear surfaces.
+    rim=rounded_ring(PRINT_W,PRINT_H,CORNER_R,
+                     PRINT_W-2*WALL,PRINT_H-2*WALL,
+                     max(1.0,CORNER_R-WALL),WALL,GLUE_Z0)
+    # Add only a perimeter collar; the complete centre remains open for the
+    # display body.  It overlaps the original thin glue ring structurally.
+    collar=rounded_ring(PRINT_W,PRINT_H,CORNER_R,
+                        PRINT_W-2*WALL,PRINT_H-2*WALL,
+                        max(1.0,CORNER_R-WALL),fit_extension,
+                        GLUE_Z0+WALL)
+
+    # Measured fabric-backed zone: begins at rear-view left and is 90 mm wide,
+    # with a 5 mm margin at both long edges.  General free height is 10 mm.
+    fabric_x0=left; fabric_x1=left+90.0
+    fabric_y0=bottom+5.0; fabric_y1=-bottom-5.0
+    fabric_outer=box((fabric_x1-fabric_x0,
+                      fabric_y1-fabric_y0,12.8),
+                     ((fabric_x0+fabric_x1)/2,
+                      (fabric_y0+fabric_y1)/2,case_z0+6.4))
+    fabric_inner=box((fabric_x1-fabric_x0-2*WALL,
+                      fabric_y1-fabric_y0-2*WALL,11.0),
+                     ((fabric_x0+fabric_x1)/2,
+                      (fabric_y0+fabric_y1)/2,case_z0+4.5))
+
+    # Higher local roof for the three buttons: 18 mm free height.  Until their
+    # individual centres are measured, the complete inner 55 x 30 mm zone is
+    # kept clear so button position cannot prevent this fit prototype seating.
+    button_x0=fabric_x1-58.0; button_x1=fabric_x1-3.0
+    button_y0=-15.0; button_y1=15.0
+    button_outer=box((button_x1-button_x0+2*WALL,
+                      button_y1-button_y0+2*WALL,20.8),
+                     ((button_x0+button_x1)/2,(button_y0+button_y1)/2,
+                      case_z0+10.4))
+    button_inner=box((button_x1-button_x0,button_y1-button_y0,19.0),
+                     ((button_x0+button_x1)/2,(button_y0+button_y1)/2,
+                      case_z0+8.5))
+    fabric_shell=trimesh.boolean.union([fabric_outer,button_outer],
+                                       engine="manifold",check_volume=False)
+    fabric_shell=trimesh.boolean.difference([fabric_shell,fabric_inner,
+                                              button_inner],
+                                             engine="manifold",
+                                             check_volume=False)
+
+    # Measured Pi/component envelope: starts 92 mm from left and 19 mm from
+    # bottom, 100 x 75 mm, 35 mm high.  Add 3 mm at the micro-SD side plus
+    # 1.5 mm assembly clearance around the remaining hard-component envelope.
+    pi_x0=left+92.0; pi_x1=pi_x0+100.0
+    pi_y0=bottom+19.0; pi_y1=pi_y0+75.0
+    clear_x0=pi_x0-4.5; clear_x1=pi_x1+1.5
+    clear_y0=pi_y0-1.5; clear_y1=pi_y1+1.5
+    pi_outer=box((clear_x1-clear_x0+2*WALL,
+                  clear_y1-clear_y0+2*WALL,38.0+WALL),
+                 ((clear_x0+clear_x1)/2,(clear_y0+clear_y1)/2,
+                  case_z0+(38.0+WALL)/2))
+    pi_inner=box((clear_x1-clear_x0,clear_y1-clear_y0,39.0),
+                 ((clear_x0+clear_x1)/2,(clear_y0+clear_y1)/2,
+                  case_z0+18.0))
+    pi_shell=trimesh.boolean.difference([pi_outer,pi_inner],
+                                        engine="manifold",check_volume=False)
+
+    # USB-C centre=105 mm and micro-HDMI centre=125 mm from rear-view left.
+    # Their moulded plugs overlap in the depth direction, so one generous
+    # lower-edge service window is stronger and easier to cable than two slots.
+    connector_cx=left+(105.0+125.0)/2
+    lower_connector_window=box((54.0,14.0,42.0),
+                               (connector_cx,clear_y0-WALL,case_z0+19.0))
+
+    # Direct access at the two Pi end faces: micro-SD at measured left and the
+    # USB/Ethernet connector bank at the opposite end.  These are intentionally
+    # broad for the first physical fit check.
+    microsd_window=box((14.0,24.0,14.0),
+                       (clear_x0-WALL,pi_y0+12.0,case_z0+8.0))
+    usb_bank_window=box((14.0,60.0,22.0),
+                        (clear_x1+WALL,(pi_y0+pi_y1)/2,case_z0+16.0))
+
+    # Rear ventilation stays away from the walls and connector exits.
+    vents=[box((10.0,2.2,6.0),(x,y,case_z0+38.0))
+           for y in (pi_y0+13.0,pi_y0+27.0,pi_y0+41.0,pi_y0+55.0)
+           for x in np.linspace(pi_x0+12.0,pi_x1-12.0,6)]
+
+    solid=trimesh.boolean.union([rim,collar,fabric_shell,pi_shell],
+                                engine="manifold",check_volume=False)
+    return trimesh.boolean.difference([solid,lower_connector_window,
+                                        microsd_window,usb_bank_window,*vents],
+                                       engine="manifold",check_volume=False)
+
+
+def symmetric_straight_screen_case():
+    """Fresh frameless screen case with straight, symmetric rear geometry.
+
+    This deliberately discards the previous measured/asymmetric wings.  The
+    centre Pi volume is exactly centred on the glass and both shallow rear
+    sections are mirror images, sized to clear the 18 mm button-side height
+    seen on the physical display.
+    """
+    outer_w,outer_h=PRINT_W,PRINT_H
+    inner_w,inner_h=outer_w-2*WALL,outer_h-2*WALL
+
+    # Thin glue rim hidden completely behind the glass.
+    rim=rounded_ring(outer_w,outer_h,CORNER_R,
+                     inner_w,inner_h,max(1.0,CORNER_R-WALL),
+                     WALL,GLUE_Z0)
+
+    # Central Pi enclosure: centred at X=0, unlike every earlier offset hood.
+    # The measured component envelope is 100 x 75 mm.  A closed top/bottom
+    # perimeter hidden behind 76.5 mm glass could not provide 75 mm internally,
+    # so this prototype uses a rear roof plus straight side walls and remains
+    # open at both long edges.  It therefore clears the full measured height
+    # without printed plastic extending beyond the glass silhouette.
+    pi_inner_w=120.0
+    pi_outer_w=pi_inner_w+2*WALL
+    pi_free_z=37.0
+    pi_outer_depth=pi_free_z+WALL
+    pi_roof=box((pi_outer_w,75.0,WALL),
+                (0.0,0.0,GLUE_Z0+pi_free_z+WALL/2))
+    pi_side_walls=[box((WALL,75.0,pi_outer_depth),
+                       (side*(pi_inner_w/2+WALL/2),0.0,
+                        GLUE_Z0+pi_outer_depth/2))
+                   for side in (-1,1)]
+    pi_shell=trimesh.boolean.union([pi_roof,*pi_side_walls],
+                                   engine="manifold",check_volume=False)
+
+    # Identical left and right shallow covers.  Their inner height is 19 mm,
+    # clearing the measured 18 mm button area with 1 mm prototype allowance.
+    side_free_z=19.0
+    side_outer_depth=side_free_z+WALL
+    side_outer_w=(outer_w-pi_outer_w)/2+1.0  # 1 mm overlap for one body
+    side_shells=[]
+    for side in (-1,1):
+        cx=side*(pi_outer_w/2+(side_outer_w-1.0)/2)
+        outer=box((side_outer_w,outer_h,side_outer_depth),
+                  (cx,0.0,GLUE_Z0+side_outer_depth/2))
+        inner=box((side_outer_w-WALL,inner_h,side_free_z+2.0),
+                  (cx+side*WALL/2,0.0,
+                   GLUE_Z0+(side_free_z-1.0)/2))
+        side_shells.append(trimesh.boolean.difference([outer,inner],
+                                                       engine="manifold",
+                                                       check_volume=False))
+
+    # A wide lower opening serves USB-C and HDMI during the first fit test.
+    # Matching end openings leave USB/Ethernet and micro-SD unobstructed,
+    # independent of which side is presented in the installed orientation.
+    lower_open=box((112.0,14.0,42.0),(0.0,-outer_h/2,GLUE_Z0+19.0))
+    end_opens=[box((14.0,58.0,28.0),(side*pi_outer_w/2,0.0,
+                                     GLUE_Z0+15.0))
+               for side in (-1,1)]
+
+    # Symmetric rear ventilation pattern on the flat central roof.
+    vents=[box((12.0,2.4,6.0),(x,y,GLUE_Z0+pi_free_z))
+           for y in (-24,-12,0,12,24)
+           for x in (-48,-32,-16,0,16,32,48)]
+
+    solid=trimesh.boolean.union([rim,pi_shell,*side_shells],
+                                engine="manifold",check_volume=False)
+    return trimesh.boolean.difference([solid,lower_open,*end_opens,*vents],
+                                       engine="manifold",check_volume=False)
 
 
 def slope_adapter():
@@ -652,14 +976,23 @@ def horizontal_center_tunnel_box():
                                       check_volume=False)
 
 
-def horizontal_box_lid():
+def horizontal_box_lid(fixed_screen_90=False):
     xmin,xmax=-104.0,110.0; bw=xmax-xmin; bd=65.0
     plate=box((bw,LID_T,bd),((xmin+xmax)/2,LID_T/2,bd/2))
     holes=[cyl_y(M4_CLEAR/2,LID_T+3,(x,LID_T/2,z))
            for x in (-78,10,98) for z in (9,56)]
-    vents=[box((12,LID_T+2,2.2),(x,LID_T/2,z))
-           for z in (12,21,30,39,48,57)
-           for x in (-62,-45,-28,45,62,79,96)]
+    screen_mounts=[(x,z) for x in (-48.0,68.0) for z in (23.0,41.0)]
+    if fixed_screen_90:
+        holes += [cyl_y(M4_CLEAR/2,LID_T+3,(x,LID_T/2,z))
+                  for x,z in screen_mounts]
+    vents=[]
+    for z in (12,21,30,39,48,57):
+        for x in (-62,-45,-28,45,62,79,96):
+            # Keep ventilation clear of the four fixed-screen M4 seats.
+            if fixed_screen_90 and any(abs(x-mx)<8.5 and abs(z-mz)<3.5
+                                       for mx,mz in screen_mounts):
+                continue
+            vents.append(box((12,LID_T+2,2.2),(x,LID_T/2,z)))
 
     # Clean measurement lid: no screen arms, tilt slots or cable ducts.  The
     # six relay-box fixing holes and ventilation remain unchanged.
@@ -683,18 +1016,20 @@ def relay_lid():
 
 
 def main():
-    sc=screen_carrier(); eb=horizontal_center_tunnel_box(); lid=horizontal_box_lid()
+    sc=screen_carrier_v37_fixed_90()
+    eb=horizontal_center_tunnel_box()
+    lid=horizontal_box_lid(fixed_screen_90=True)
     finish(sc,SCREEN_OUT); finish(eb,BOX_OUT); finish(lid,LID_OUT)
     print(f"glass={SCREEN_W} x {SCREEN_H}")
     print(f"largest printed front silhouette={PRINT_W} x {PRINT_H}")
     print(f"hidden margin per side={(SCREEN_W-PRINT_W)/2:.2f} x "
           f"{(SCREEN_H-PRINT_H)/2:.2f}")
-    print("interface prototype=no screen arms/lugs; relay-box lid=6 x M4")
+    print("interface=fixed 90 degrees; screen feet=4 x M4 inserts; lid=4 matching holes")
     print("dash reference lip=120 mm deep x 50 mm high; slope begins 50 mm up")
     print("USB holes=30.4 mm; relay pitch 65 x 42 mm PROVISIONAL")
-    print("screen profile=0 to 15 mm clearance over 15 mm rounded edge transition")
-    print("Pi USB service=vehicle-left side window 60 x 18 mm")
-    print("Pi lower connector service=USB-C 16 mm + micro-HDMI 32 mm, 2 mm web")
+    print("screen rear=exact V37 geometry plus fixed 90-degree mounting feet")
+    print("screen interface=5 mm open perimeter extension")
+    print("Pi connector openings=continued through the joining skirt")
     print("relay box=214 x 60 x 65 mm, horizontal 0 degrees")
     print("vehicle centre cable tunnel=40 x 25 mm, open through full depth")
     print("relay board=entirely left of vehicle centreline")
