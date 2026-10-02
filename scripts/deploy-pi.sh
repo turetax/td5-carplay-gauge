@@ -22,7 +22,6 @@ printf 'Synkroniserar gateway och startfiler till %s …\n' "$TARGET"
 "${SSH[@]}" "$TARGET" "mkdir -p '$REMOTE_PROJECT/scripts' '$REMOTE_PROJECT/packaging' '$REMOTE_LIVI'"
 rsync -az --itemize-changes -e "$RSYNC_SSH" \
   "$ROOT_DIR/td5gauge.py" \
-  "$ROOT_DIR/td5_protocol.py" \
   "$ROOT_DIR/td5_signals.py" \
   "$ROOT_DIR/td5_transport.py" \
   "$ROOT_DIR/pi-start-gateway.sh" \
@@ -45,6 +44,8 @@ rsync -az --itemize-changes -e "$RSYNC_SSH" \
   --exclude 'dist/' \
   --exclude 'node_modules/' \
   --exclude 'out/' \
+  --exclude '/assets/gstreamer/linux-x64/' \
+  --exclude '/assets/gstreamer/macos-arm64/' \
   "$ROOT_DIR/third_party/LIVI/" "$TARGET:$REMOTE_LIVI/"
 
 rsync -az --itemize-changes -e "$RSYNC_SSH" \
@@ -58,6 +59,9 @@ rsync -az --itemize-changes -e "$RSYNC_SSH" \
 "${SSH[@]}" "$TARGET" "set -eu
 export PATH=/home/$PI_USER/.local/node-current/bin:\$PATH
 cd '$REMOTE_LIVI'
+# Remove two legacy duplicate entry files from older deployments. Their current
+# implementations live under components/pages and the stale copies break tsc.
+rm -f src/renderer/src/Projection.tsx src/renderer/src/Td5Cockpit.tsx
 backup=out.td5-deploy-backup
 rm -rf \"\$backup\"
 [ ! -d out ] || cp -a out \"\$backup\"
@@ -72,7 +76,8 @@ pids=\"\$(pgrep -f '^$REMOTE_LIVI/node_modules/.*/electron' || true)\"
 gateway_pid=\"\$(pgrep -u '$PI_USER' -f '$REMOTE_PROJECT/td5gauge.py' || true)\"
 [ -z \"\$gateway_pid\" ] || kill \$gateway_pid
 sleep 2
+nohup sh '$REMOTE_PROJECT/pi-start-gateway.sh' >/tmp/td5-gateway.log 2>&1 </dev/null &
 TD5_PROJECT_DIR='$REMOTE_PROJECT' TD5_LIVI_DIR='$REMOTE_LIVI' \
-  nohup '$REMOTE_PROJECT/livi-integrated-start.sh' >/tmp/livi-integrated.log 2>&1 </dev/null &"
+  nohup sh '$REMOTE_PROJECT/livi-integrated-start.sh' >/tmp/livi-integrated.log 2>&1 </dev/null &"
 
 printf '%s\n' 'Klart: ny version byggd och LIVI omstartad.'
