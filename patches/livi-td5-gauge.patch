@@ -115,26 +115,10 @@ index aa3b9d4..808b02d 100644
 -  })
  }
 diff --git a/src/main/index.ts b/src/main/index.ts
-index f035245..4c26de0 100644
+index ef5c19d..4c26de0 100644
 --- a/src/main/index.ts
 +++ b/src/main/index.ts
-@@ -6,6 +6,7 @@ import { setupAppIdentity } from '@main/app/init'
- import { setupLifecycle } from '@main/app/lifecycle'
- 
- installMainProcessErrorHandlers()
-+console.log(`[startup] Electron main entered (${Math.round(process.uptime() * 1000)} ms)`)
- 
- import { setDebugLogging } from '@main/constants'
- import { registerIpc } from '@main/ipc'
-@@ -60,6 +61,7 @@ if (bootstrapCompositor()) {
- 
- app.whenReady().then(async () => {
-   if (!bootAllowed) return
-+  console.log(`[startup] Electron ready (${Math.round(process.uptime() * 1000)} ms)`)
-   const projectionService = new ProjectionService()
-   const usbService = new USBService(projectionService)
-   const telemetryStore = new TelemetryStore()
-@@ -156,15 +158,15 @@ app.whenReady().then(async () => {
+@@ -158,15 +158,15 @@ app.whenReady().then(async () => {
      await checkAndInstallHelperSudoers(win)
    }
  
@@ -526,97 +510,31 @@ index 123c808..763975b 100644
    displayGamma: 1.0,
    displayContrast: 1.0,
    displayColorR: 1.0,
-diff --git a/src/main/window/createWindow.ts b/src/main/window/createWindow.ts
-index 2a53300..2d78a3e 100644
---- a/src/main/window/createWindow.ts
-+++ b/src/main/window/createWindow.ts
-@@ -148,6 +148,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
- 
-   mainWindow.once('ready-to-show', () => {
-     const win = mainWindow as BrowserWindow
-+    console.log(`[startup] main window ready to show (${Math.round(process.uptime() * 1000)} ms)`)
- 
-     const baseW = savedBounds?.width || runtimeState.config.mainScreenWidth || 1200
-     const baseH = savedBounds?.height || runtimeState.config.mainScreenHeight || 720
 diff --git a/src/renderer/src/App.tsx b/src/renderer/src/App.tsx
-index b99bd60..0e9a5f2 100644
+index 0e9a5f2..ea3f4f0 100644
 --- a/src/renderer/src/App.tsx
 +++ b/src/renderer/src/App.tsx
-@@ -38,6 +38,7 @@ function AppInner() {
-   const [receivingVideo, setReceivingVideo] = useState(false)
-   const [commandCounter, setCommandCounter] = useState(0)
-   const [keyCommand, setKeyCommand] = useState('')
-+  const [showStartup, setShowStartup] = useState(true)
-   const editingField = appContext?.keyboardNavigation?.focusedElId
-   const location = useLocation()
- 
-@@ -54,6 +55,36 @@ function AppInner() {
- 
-   const element = useRoutes(appRoutes)
- 
-+  useEffect(() => {
-+    const startedAt = performance.now()
-+    let minimumTimer = 0
-+    let fallbackTimer = 0
-+    let secondFrame = 0
-+
-+    // Two animation frames guarantee that React has committed and Chromium has
-+    // had a chance to paint the actual cockpit. Keep only a short minimum so
-+    // the transition does not flash on a fast machine; never hold the UI for a
-+    // fixed multi-second animation.
-+    const firstFrame = window.requestAnimationFrame(() => {
-+      secondFrame = window.requestAnimationFrame(() => {
-+        const elapsed = performance.now() - startedAt
-+        minimumTimer = window.setTimeout(() => {
-+          window.clearTimeout(fallbackTimer)
-+          console.info(`[startup] renderer interactive after ${Math.round(performance.now())} ms`)
-+          setShowStartup(false)
-+        }, Math.max(0, 350 - elapsed))
-+      })
-+    })
-+
-+    fallbackTimer = window.setTimeout(() => setShowStartup(false), 1500)
-+    return () => {
-+      window.cancelAnimationFrame(firstFrame)
-+      window.cancelAnimationFrame(secondFrame)
-+      window.clearTimeout(minimumTimer)
-+      window.clearTimeout(fallbackTimer)
-+    }
-+  }, [])
-+
-   const lastInputModeRef = useRef<'keys' | 'pointer' | 'other'>('other')
-   const prevPathRef = useRef<string>(location.pathname)
-   const cameFromSettingsSubRef = useRef(false)
-@@ -324,6 +355,29 @@ function AppInner() {
+@@ -355,6 +355,20 @@ function AppInner() {
        )}
        <Box sx={{ width: '100%', height: '100%' }}>{element}</Box>
        <SessionSwitchOverlay />
-+      {showStartup && (
-+        <Box role="status" aria-live="polite" sx={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'grid', gridTemplateColumns: '747px minmax(0, 1fr)', color: '#edf2ea', background: 'radial-gradient(ellipse at 72% -15%, #222924, #0a0d0b 56%)', fontFamily: 'Arial, Helvetica, sans-serif' }}>
-+          <Box sx={{ padding: '52px 42px 42px 102px', borderRight: '1px solid #ffffff1c', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-+            <Box>
-+              <Box sx={{ color: '#b8d699', fontSize: 16, fontWeight: 800, letterSpacing: '.15em' }}>TD5 GAUGE</Box>
-+              <Box sx={{ mt: 1.5, fontSize: 31, fontWeight: 700, letterSpacing: '.025em' }}>STARTAR FORDONSSYSTEM</Box>
-+              <Box sx={{ mt: 1.2, color: '#b8c2b7', fontSize: 18 }}>Förbereder ECU och livevärden</Box>
-+            </Box>
-+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, color: '#c9d0c8', fontSize: 16, fontWeight: 700, letterSpacing: '.05em' }}>
-+              <Box sx={{ width: 10, height: 10, borderRadius: '50%', background: '#b8d699', boxShadow: '0 0 14px #b8d69999' }} /> SÖKER ECU-ANSLUTNING
-+            </Box>
-+          </Box>
-+          <Box sx={{ padding: '52px 58px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-+            <Box>
-+              <Box sx={{ color: '#b8d699', fontSize: 16, fontWeight: 800, letterSpacing: '.15em' }}>PROJECTION</Box>
-+              <Box sx={{ mt: 1.5, fontSize: 31, fontWeight: 700, letterSpacing: '.025em' }}>CARPLAY</Box>
-+              <Box sx={{ mt: 1.2, color: '#b8c2b7', fontSize: 18 }}>Förbereder anslutning till iPhone</Box>
-+            </Box>
-+            <Box sx={{ height: 3, width: '100%', overflow: 'hidden', borderRadius: 4, background: '#ffffff18' }}><Box sx={{ width: '35%', height: '100%', borderRadius: 4, background: '#b8d699', animation: 'td5-startup-progress 1.15s ease-in-out infinite alternate' }} /></Box>
-+          </Box>
-+          <style>{'@keyframes td5-startup-progress{from{transform:translateX(-25%)}to{transform:translateX(210%)}}'}</style>
-+        </Box>
-+      )}
-     </AppLayout>
-   )
- }
++      {/* Keep dimming above both Chromium UI and the transparent compositor
++          opening used by the native CarPlay video plane. */}
++      <div
++        aria-hidden="true"
++        data-testid="display-brightness-overlay"
++        style={{
++          position: 'fixed',
++          inset: 0,
++          zIndex: 10000,
++          pointerEvents: 'none',
++          background: '#000',
++          opacity: 'var(--livi-display-dim, 0)'
++        }}
++      />
+       {showStartup && (
+         <Box role="status" aria-live="polite" sx={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'grid', gridTemplateColumns: '747px minmax(0, 1fr)', color: '#edf2ea', background: 'radial-gradient(ellipse at 72% -15%, #222924, #0a0d0b 56%)', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+           <Box sx={{ padding: '52px 42px 42px 102px', borderRight: '1px solid #ffffff1c', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
 diff --git a/src/renderer/src/components/layouts/AppLayout.tsx b/src/renderer/src/components/layouts/AppLayout.tsx
 index 8042521..24d4631 100644
 --- a/src/renderer/src/components/layouts/AppLayout.tsx
@@ -653,476 +571,106 @@ index ab713ac..4a5e070 100644
  
    test('uses compact icons and a smaller clock at extra-small heights', async () => {
 diff --git a/src/renderer/src/components/pages/projection/IdleDashboard.tsx b/src/renderer/src/components/pages/projection/IdleDashboard.tsx
-new file mode 100644
-index 0000000..0c91849
---- /dev/null
+index 0c91849..d06e227 100644
+--- a/src/renderer/src/components/pages/projection/IdleDashboard.tsx
 +++ b/src/renderer/src/components/pages/projection/IdleDashboard.tsx
-@@ -0,0 +1,167 @@
-+import { useEffect, useState } from 'react'
-+
-+type IdleLive = {
-+  status?: string
-+  rpm?: number | null
-+  voltage_v?: number | null
-+  coolant_c?: number | null
-+  boost_kpa?: number | null
-+  map_kpa?: number | null
-+  aap_kpa?: number | null
-+  consumption?: {
-+    distance_km?: number
-+    l_per_100km?: number | null
-+    provisional_l_per_100km?: number | null
-+  }
-+  session?: {
-+    duration_s?: number
-+    peaks?: { coolant_c?: number | null; boost_kpa?: number | null; rpm?: number | null }
-+  }
-+}
-+
-+const emptyLive: IdleLive = { status: 'Söker ECU' }
-+
-+const numberText = (value: number | null | undefined, decimals = 0) =>
-+  value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(decimals)
-+
-+const durationText = (seconds?: number) => {
-+  const value = Math.max(0, Math.round(seconds ?? 0))
-+  const hours = Math.floor(value / 3600)
-+  const minutes = String(Math.floor(value / 60) % 60).padStart(2, '0')
-+  return `${hours}:${minutes}`
-+}
-+
-+function DefenderSilhouette() {
-+  return (
-+    <svg aria-label="Defender-siluett" role="img" viewBox="0 0 520 170" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
-+      <defs>
-+        <linearGradient id="idle-body" x1="0" x2="0" y1="0" y2="1">
-+          <stop offset="0" stopColor="#c7ddb2" stopOpacity=".92" />
-+          <stop offset="1" stopColor="#718466" stopOpacity=".62" />
-+        </linearGradient>
-+        <filter id="idle-glow" x="-40%" y="-80%" width="180%" height="260%">
-+          <feGaussianBlur stdDeviation="8" />
-+        </filter>
-+      </defs>
-+      <ellipse cx="265" cy="145" rx="214" ry="13" fill="#a9c68f" opacity=".13" filter="url(#idle-glow)" />
-+      <path d="M54 119 71 79h60l19-49h196l48 49h55l20 40v20H54Z" fill="url(#idle-body)" stroke="#dbe8cf" strokeWidth="3" strokeLinejoin="round" />
-+      <path d="m166 40-14 39h99V40Zm101 0v39h105l-38-39Z" fill="#131916" stroke="#a9b7a1" strokeWidth="2" />
-+      <path d="M101 83h52m241 0h46M263 39v81M56 119h411" fill="none" stroke="#263128" strokeWidth="3" />
-+      <path d="M272 51h6m-116 47h20m154 0h23" stroke="#e7eee1" strokeLinecap="round" strokeWidth="4" />
-+      <circle cx="139" cy="132" r="29" fill="#0b0e0c" stroke="#b8c2b1" strokeWidth="7" />
-+      <circle cx="139" cy="132" r="11" fill="#7f9274" />
-+      <circle cx="391" cy="132" r="29" fill="#0b0e0c" stroke="#b8c2b1" strokeWidth="7" />
-+      <circle cx="391" cy="132" r="11" fill="#7f9274" />
-+      <rect x="61" y="96" width="20" height="12" rx="4" fill="#f0c44f" opacity=".85" />
-+      <rect x="450" y="96" width="13" height="12" rx="3" fill="#f4544c" opacity=".72" />
-+    </svg>
-+  )
-+}
-+
-+function Stat({ label, value, unit, tone = '#eef3ea' }: { label: string; value: string; unit: string; tone?: string }) {
-+  return (
-+    <div style={{ minWidth: 0, padding: '14px 16px', border: '1px solid #ffffff17', borderRadius: 15, background: '#0d120fba' }}>
-+      <div style={{ color: '#929e92', fontSize: 12, fontWeight: 800, letterSpacing: '.12em', whiteSpace: 'nowrap' }}>{label}</div>
-+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
-+        <span style={{ color: tone, fontSize: 33, fontWeight: 750, lineHeight: 1, letterSpacing: '-.055em' }}>{value}</span>
-+        <span style={{ color: '#aab4aa', fontSize: 12, fontWeight: 800, letterSpacing: '.08em' }}>{unit}</span>
-+      </div>
-+    </div>
-+  )
-+}
-+
-+export function IdleDashboard({ visible, hardwarePresent }: { visible: boolean; hardwarePresent: boolean }) {
-+  const [live, setLive] = useState<IdleLive>(emptyLive)
-+  const [now, setNow] = useState(() => new Date())
-+
-+  useEffect(() => {
-+    if (!visible) return
-+    const timer = window.setInterval(() => setNow(new Date()), 1000)
-+    return () => window.clearInterval(timer)
-+  }, [visible])
-+
-+  useEffect(() => {
-+    if (!visible) return
-+    let alive = true
-+    const read = async () => {
-+      try {
-+        const response = await fetch('http://127.0.0.1:8080/api/live', { cache: 'no-store' })
-+        if (!response.ok) throw new Error(String(response.status))
-+        if (alive) setLive(await response.json())
-+      } catch {
-+        if (alive) setLive((current) => ({ ...current, status: 'Söker ECU' }))
-+      }
-+    }
-+    void read()
-+    const timer = window.setInterval(() => void read(), 1000)
-+    return () => {
-+      alive = false
-+      window.clearInterval(timer)
-+    }
-+  }, [visible])
-+
-+  if (!visible) return null
-+
-+  const connected = live.status === 'Ansluten'
-+  const running = Number(live.rpm ?? 0) > 300
-+  const coolant = Number(live.coolant_c ?? 0)
-+  const coolantTone = coolant >= 105 ? '#ff4b42' : coolant >= 98 ? '#f0c44f' : '#eef3ea'
-+  const boost = live.boost_kpa ?? (live.map_kpa != null && live.aap_kpa != null ? live.map_kpa - live.aap_kpa : null)
-+  const consumption = live.consumption?.l_per_100km ?? live.consumption?.provisional_l_per_100km
-+  const carplayText = hardwarePresent ? 'VÄNTAR PÅ IPHONE' : 'ANSLUT CARPLAY'
-+
-+  return (
-+    <section
-+      aria-label="Defender startskärm"
-+      style={{
-+        position: 'absolute',
-+        inset: 0,
-+        overflow: 'hidden',
-+        color: '#eef3ea',
-+        background: 'radial-gradient(circle at 52% 35%, #202b22 0, #101612 43%, #080b09 100%)',
-+        fontFamily: 'Manrope, Arial, sans-serif',
-+        pointerEvents: 'auto'
-+      }}
-+    >
-+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, opacity: .2, backgroundImage: 'linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px)', backgroundSize: '42px 42px', maskImage: 'linear-gradient(to bottom, black, transparent 75%)' }} />
-+      <div style={{ position: 'relative', height: '100%', padding: '24px 30px 20px', display: 'grid', gridTemplateColumns: 'minmax(360px,1.2fr) minmax(420px,1fr)', gap: 26 }}>
-+        <div style={{ minWidth: 0, display: 'grid', gridTemplateRows: 'auto 1fr auto' }}>
-+          <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-+            <div>
-+              <div style={{ color: '#b8d699', fontSize: 14, fontWeight: 850, letterSpacing: '.2em' }}>DEFENDER · TD5</div>
-+              <div style={{ marginTop: 5, color: '#dce5d8', fontSize: 22, fontWeight: 700, letterSpacing: '.04em' }}>FORDONSSYSTEM</div>
-+            </div>
-+            <time style={{ fontSize: 42, fontWeight: 650, lineHeight: 1, letterSpacing: '-.045em' }}>
-+              {now.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}
-+            </time>
-+          </header>
-+          <div style={{ minHeight: 0, padding: '2px 4px 0', display: 'grid', placeItems: 'center' }}><DefenderSilhouette /></div>
-+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: connected ? '#cfe5bb' : '#f0c44f', fontSize: 13, fontWeight: 850, letterSpacing: '.1em' }}>
-+              <span style={{ width: 9, height: 9, flex: '0 0 auto', borderRadius: '50%', background: connected ? '#b8d699' : '#f0c44f', boxShadow: connected ? '0 0 15px #b8d69999' : 'none' }} />
-+              {connected ? (running ? 'MOTOR IGÅNG' : 'ECU ANSLUTEN') : 'SÖKER ECU'}
-+            </div>
-+            <div style={{ color: '#8e998e', fontSize: 12, fontWeight: 750, letterSpacing: '.08em' }}>SESSION {durationText(live.session?.duration_s)}</div>
-+          </div>
-+        </div>
-+
-+        <div style={{ minWidth: 0, display: 'grid', gridTemplateRows: '1fr auto', gap: 14 }}>
-+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-+            <Stat label="KYLNING" value={numberText(live.coolant_c)} unit="°C" tone={coolantTone} />
-+            <Stat label="LADDNING" value={numberText(live.voltage_v, 1)} unit="V" />
-+            <Stat label="LADDTRYCK" value={numberText(boost)} unit="kPa" />
-+            <Stat label="SNITT" value={consumption == null ? '—' : numberText(consumption / 10, 2)} unit="l/mil" />
-+          </div>
-+          <div style={{ minHeight: 66, padding: '12px 16px', border: '1px solid #b8d6992e', borderRadius: 15, background: '#b8d6990b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 18 }}>
-+            <div>
-+              <div style={{ color: '#cfe5bb', fontSize: 14, fontWeight: 850, letterSpacing: '.12em' }}>{carplayText}</div>
-+              <div style={{ marginTop: 5, color: '#8f9a8f', fontSize: 12 }}>{hardwarePresent ? 'CarPlay startar automatiskt när telefonen ansluter' : 'Sätt i Carlinkit-dongeln för att ansluta telefonen'}</div>
-+            </div>
-+            <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b8d699" strokeWidth="1.8"><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M10 18h4" /></svg>
-+          </div>
-+        </div>
-+      </div>
-+      <style>{'@keyframes idle-breathe{0%,100%{opacity:.7}50%{opacity:1}}'}</style>
-+    </section>
-+  )
-+}
-diff --git a/src/renderer/src/components/pages/projection/Projection.tsx b/src/renderer/src/components/pages/projection/Projection.tsx
-index 906cabf..abbb47b 100644
---- a/src/renderer/src/components/pages/projection/Projection.tsx
-+++ b/src/renderer/src/components/pages/projection/Projection.tsx
-@@ -1,12 +1,10 @@
--// Icons
--import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
--import { Box, useTheme } from '@mui/material'
-+import { useTheme } from '@mui/material'
- import type { Config } from '@shared/types'
- import { AudioCommand, CommandMapping } from '@shared/types/ProjectionEnums'
- import { aaContentArea, isClusterDisplayed } from '@shared/utils'
- import { createProjectionWorker } from '@worker/createProjectionWorker'
- import type { KeyCommand, ProjectionWorker, UsbEvent, WorkerToUI } from '@worker/types'
--import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
- import { useLocation, useNavigate } from 'react-router'
- import { useFftPcm } from '../../../hooks/useFftPcm'
- import {
-@@ -16,6 +14,7 @@ import {
-   useStatusStore
- } from '../../../store/store'
- import { useProjectionMultiTouch } from './hooks/useProjectionTouch'
-+import { IdleDashboard } from './IdleDashboard'
- import { ViewAreaMask } from './ViewAreaMask'
+@@ -33,7 +33,7 @@ const durationText = (seconds?: number) => {
  
- const RETRY_DELAY_MS = 3000
-@@ -28,55 +27,6 @@ interface CarplayProps {
-   commandCounter: number
+ function DefenderSilhouette() {
+   return (
+-    <svg aria-label="Defender-siluett" role="img" viewBox="0 0 520 170" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
++    <svg aria-label="Land Rover Defender 110-siluett" role="img" viewBox="0 0 600 190" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+       <defs>
+         <linearGradient id="idle-body" x1="0" x2="0" y1="0" y2="1">
+           <stop offset="0" stopColor="#c7ddb2" stopOpacity=".92" />
+@@ -43,17 +43,32 @@ function DefenderSilhouette() {
+           <feGaussianBlur stdDeviation="8" />
+         </filter>
+       </defs>
+-      <ellipse cx="265" cy="145" rx="214" ry="13" fill="#a9c68f" opacity=".13" filter="url(#idle-glow)" />
+-      <path d="M54 119 71 79h60l19-49h196l48 49h55l20 40v20H54Z" fill="url(#idle-body)" stroke="#dbe8cf" strokeWidth="3" strokeLinejoin="round" />
+-      <path d="m166 40-14 39h99V40Zm101 0v39h105l-38-39Z" fill="#131916" stroke="#a9b7a1" strokeWidth="2" />
+-      <path d="M101 83h52m241 0h46M263 39v81M56 119h411" fill="none" stroke="#263128" strokeWidth="3" />
+-      <path d="M272 51h6m-116 47h20m154 0h23" stroke="#e7eee1" strokeLinecap="round" strokeWidth="4" />
+-      <circle cx="139" cy="132" r="29" fill="#0b0e0c" stroke="#b8c2b1" strokeWidth="7" />
+-      <circle cx="139" cy="132" r="11" fill="#7f9274" />
+-      <circle cx="391" cy="132" r="29" fill="#0b0e0c" stroke="#b8c2b1" strokeWidth="7" />
+-      <circle cx="391" cy="132" r="11" fill="#7f9274" />
+-      <rect x="61" y="96" width="20" height="12" rx="4" fill="#f0c44f" opacity=".85" />
+-      <rect x="450" y="96" width="13" height="12" rx="3" fill="#f4544c" opacity=".72" />
++      <ellipse cx="302" cy="164" rx="252" ry="14" fill="#a9c68f" opacity=".13" filter="url(#idle-glow)" />
++
++      {/* Long, square 110 body with the Defender's separate bonnet and upright rear. */}
++      <path d="M38 127 53 104l80-10 24-67h281l45 67h69l18 18v37H38Z" fill="url(#idle-body)" stroke="#dbe8cf" strokeWidth="3" strokeLinejoin="round" />
++      <path d="M53 104h101m329-10h69l18 18M38 127h532M147 95h337" fill="none" stroke="#344137" strokeWidth="3" />
++
++      {/* Alpine roof, four-door glazing and the characteristic steep windscreen. */}
++      <path d="M173 38h57v56h-76Zm69 0h72v56h-72Zm84 0h72v56h-72Zm84 0h22l37 56h-59Z" fill="#111714" stroke="#a9b7a1" strokeWidth="2.5" />
++      <path d="M164 27h280M230 38v111m90-111v111m84-111v111M469 94v55" fill="none" stroke="#52614f" strokeWidth="3" />
++      <path d="M183 48h29m77 0h13m70 0h13" stroke="#dfe9d8" strokeLinecap="round" strokeWidth="4" opacity=".7" />
++
++      {/* Door hinges, handles, sill and Defender front wing/bonnet details. */}
++      <path d="M170 105h8m-8 22h8m66-22h8m-8 22h8m84-22h8m-8 22h8M231 111h17m72 0h17m68 0h17M118 101v31M62 143h506" fill="none" stroke="#263128" strokeWidth="3" strokeLinecap="round" />
++      <path d="M53 105h78l8 22H40m443-25h57m-56 9h70" fill="none" stroke="#d2dfca" strokeWidth="2" />
++
++      {/* Rear-mounted spare wheel and widely spaced 110 road wheels. */}
++      <circle cx="493" cy="91" r="28" fill="#0b0e0c" stroke="#8fa184" strokeWidth="6" />
++      <circle cx="493" cy="91" r="10" fill="#596954" />
++      <circle cx="137" cy="145" r="34" fill="#080b09" stroke="#b8c2b1" strokeWidth="8" />
++      <circle cx="137" cy="145" r="13" fill="#7f9274" stroke="#263128" strokeWidth="3" />
++      <circle cx="445" cy="145" r="34" fill="#080b09" stroke="#b8c2b1" strokeWidth="8" />
++      <circle cx="445" cy="145" r="13" fill="#7f9274" stroke="#263128" strokeWidth="3" />
++
++      <rect x="42" y="111" width="18" height="13" rx="3" fill="#f0c44f" opacity=".9" />
++      <rect x="548" y="112" width="15" height="13" rx="3" fill="#f4544c" opacity=".76" />
++      <text x="300" y="181" textAnchor="middle" fill="#9eae98" fontSize="13" fontWeight="800" letterSpacing="4">DEFENDER 110</text>
+     </svg>
+   )
  }
- 
--function StatusOverlay({
--  mode,
--  show,
--  offsetX = 0,
--  offsetY = 0
--}: {
--  mode: 'dongle' | 'phone'
--  show: boolean
--  offsetX?: number
--  offsetY?: number
--}) {
--  const theme = useTheme()
--  const isPhonePhase = mode === 'phone'
--
--  return (
--    <Box
--      role="status"
--      aria-live="polite"
--      aria-hidden={!show}
--      sx={{
--        position: 'absolute',
--        inset: 0,
--        pointerEvents: 'none',
--        display: show ? 'block' : 'none',
--        zIndex: 9
--      }}
--    >
--      <Box
--        sx={{
--          position: 'absolute',
--          left: `calc(50% + ${offsetX}px)`,
--          top: `calc(50% + ${offsetY}px)`,
--          transform: 'translate(-50%, -50%)',
--          display: 'grid',
--          placeItems: 'center'
--        }}
--      >
--        <CropPortraitOutlinedIcon
--          sx={{
--            fontSize: 84,
--            color: theme.palette.text.primary,
--            opacity: isPhonePhase ? 'var(--ui-breathe-opacity, 1)' : 0.55
--          }}
--        />
--      </Box>
--    </Box>
--  )
--}
--
- // Projection
- 
- const CarplayComponent: React.FC<CarplayProps> = ({
-@@ -153,42 +103,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
-     attentionSwitchedByRef.current = null
-   }, [pathname])
- 
--  // Overlay offset
--  const [overlayX, setOverlayX] = useState(0)
--  const [overlayY, setOverlayY] = useState(0)
--
--  useLayoutEffect(() => {
--    const getAnchor = () => document.getElementById('content-root')
--
--    const recalc = () => {
--      const r = getAnchor()?.getBoundingClientRect()
--      if (!r) return
--
--      const contentCenterX = r.left + r.width / 2
--      const contentCenterY = r.top + r.height / 2
--
--      const windowCenterX = window.innerWidth / 2
--      const windowCenterY = window.innerHeight / 2
--
--      setOverlayX(contentCenterX - windowCenterX)
--      setOverlayY(contentCenterY - windowCenterY)
--    }
--
--    recalc()
--    const raf = requestAnimationFrame(recalc)
--
--    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(recalc) : null
--    const anchor = getAnchor()
--    if (ro && anchor) ro.observe(anchor)
--
--    window.addEventListener('resize', recalc)
--    return () => {
--      cancelAnimationFrame(raf)
--      window.removeEventListener('resize', recalc)
--      ro?.disconnect()
--    }
--  }, [settings?.hand])
--
-   // Visual delay for FFT so spectrum matches audio playback
-   const fftVisualDelayMs = 0
- 
-@@ -589,8 +503,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
- 
-   /* ------------------------------- UI binding ------------------------------ */
- 
--  const mode: 'dongle' | 'phone' = !isProjectionActive ? 'dongle' : 'phone'
--
-   const inProjection = pathname === '/'
-   const showProjectionOverlay = inProjection
- 
-@@ -643,9 +555,10 @@ const CarplayComponent: React.FC<CarplayProps> = ({
-         zIndex: showProjectionOverlay ? 999 : -1
-       }}
-     >
--      {pathname === '/' && (
--        <StatusOverlay show={!receivingVideo} mode={mode} offsetX={overlayX} offsetY={overlayY} />
--      )}
-+      <IdleDashboard
-+        visible={pathname === '/' && !receivingVideo}
-+        hardwarePresent={isProjectionActive}
-+      />
- 
-       <div
-         id="videoContainer"
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..735115a 100644
+index f0734b0..03d1587 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-@@ -1,24 +1,102 @@
+@@ -1,4 +1,5 @@
  import { useEffect, useState } from 'react'
 +import { useLiviStore } from '../../../store/store'
  import manropeFont from '../../../assets/Manrope-wght.ttf'
  
  type Td5Live = {
-   status?: string
-+  detail?: string
-+  updated_at?: number
-   coolant_c?: number | null
-   rpm?: number | null
-   voltage_v?: number | null
-   fuel_c?: number | null
-   map_kpa?: number | null
-+  aap_kpa?: number | null
-   boost_kpa?: number | null
-   air_c?: number | null
-   maf_kg_h?: number | null
-   wastegate_percent?: number | null
-   throttle_1?: number | null
-+  throttle_2?: number | null
-+  throttle_3?: number | null
-+  throttle_supply_v?: number | null
-+  ecu_variant?: string | null
-+  driver_fuel_demand_mg?: number | null
-+  fuel_injected_mg?: number | null
-+  idle_fuel_demand_mg?: number | null
-   injector_balance?: number[] | null
-+  session?: {
-+    started_at?: number
-+    duration_s?: number
-+    peaks?: { coolant_c?: number | null; boost_kpa?: number | null; rpm?: number | null }
-+    voltage_range?: [number | null, number | null]
-+    log_active?: boolean
-+    alerts?: { active?: Td5Alert[]; history?: Td5Alert[] }
-+  }
-+  dtc?: { codes?: Td5Fault[]; raw?: string; updated_at?: number; error?: string; pending?: boolean }
-+  feature_configuration?: { raw?: string; updated_at?: number; error?: string; pending?: boolean; read_only?: boolean }
-+  consumption?: { target_km?: number; distance_km?: number; l_per_100km?: number | null; provisional_l_per_100km?: number | null; current_lph?: number | null }
-+  abs?: {
-+    expected_controller?: string; state?: string; detail?: string; read_only?: boolean; engine_kline_ready?: boolean; stationary?: boolean
-+    fault_memory?: { stored?: AbsFault[]; current?: AbsFault[]; stored_raw?: string; current_raw?: string; updated_at?: number; error?: string; pending?: boolean }
-+  }
+@@ -69,7 +70,6 @@ const duration = (seconds?: number) => {
+   const value = Math.max(0, Math.round(seconds ?? 0))
+   return `${Math.floor(value / 3600)}:${String(Math.floor(value / 60) % 60).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
+ }
+-const clock = (timestamp?: number) => timestamp ? new Date(timestamp * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : '—'
+ const linePoints = (values: Array<number | null | undefined>) => {
+   const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+   if (usable.length < 2) return ''
+@@ -120,14 +120,31 @@ function alternatorTone(value: number | null | undefined, engineRunning: boolean
  }
  
-+type Td5Alert = { name: string; value: number; unit: string; level: string; duration_s?: number }
-+type Td5Fault = { code?: string; description?: string; state?: string; counter?: number }
-+type AbsFault = { code?: string; description?: string; byte?: number; bit?: number }
-+type Td5Sample = {
-+  updated_at?: number
-+  rpm?: number | null
-+  voltage_v?: number | null
-+  coolant_c?: number | null
-+  fuel_c?: number | null
-+  air_c?: number | null
-+  map_kpa?: number | null
-+  aap_kpa?: number | null
-+  boost_kpa?: number | null
-+  maf_kg_h?: number | null
-+  wastegate_percent?: number | null
-+  injector_balance?: number[] | null
-+}
-+type Td5History = { samples: Td5Sample[]; max_samples?: number }
-+type Td5View = 'home' | 'boost' | 'charging' | 'air' | 'fuel' | 'injectors' | 'trends' | 'history' | 'ecu' | 'ecuIdentity' | 'abs' | 'injectorId' | 'turboHealth' | 'injectorTrend'
-+
- const blank: Td5Live = { status: 'Söker ECU' }
-+const emptyHistory: Td5History = { samples: [] }
- const text = (value: number | null | undefined, decimals = 0) =>
-   value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toFixed(decimals)
-+const duration = (seconds?: number) => {
-+  const value = Math.max(0, Math.round(seconds ?? 0))
-+  return `${Math.floor(value / 3600)}:${String(Math.floor(value / 60) % 60).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
-+}
-+const linePoints = (values: Array<number | null | undefined>) => {
-+  const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-+  if (usable.length < 2) return ''
-+  const low = Math.min(...usable)
-+  const high = Math.max(...usable)
-+  const range = high - low || 1
-+  return usable.map((value, index) => `${(index / (usable.length - 1)) * 100},${28 - ((value - low) / range) * 26}`).join(' ')
-+}
-+
-+function connectionMessage(status?: string, detail?: string) {
-+  const message = (detail ?? '').toLowerCase()
-+  if (status === 'Ansluten') return 'Td5 ECU svarar. Livevärden tas emot.'
-+  if (message.includes('/dev/ttyusb') || message.includes('no such file')) return 'K+DCAN-kabeln hittas inte. Kontrollera USB-anslutningen till Pi:n.'
-+  if (message.includes('permission denied')) return 'Kabeln hittas, men Pi:n saknar åtkomst. Starta om Pi:n och kontrollera kabeln.'
-+  if (message.includes('timeout') || message.includes('inget svar')) return 'Kabeln är ansluten, men ECU:n svarar inte. Kontrollera OBD-kontakten och tändningsläge 2.'
-+  if (status === 'Ansluter') return 'Ansluter till Td5 ECU. Vänta ett ögonblick.'
-+  return 'Väntar på K+DCAN-kabel och Td5 ECU.'
-+}
-+
-+function faultReadMessage(status?: string, pending?: boolean, error?: string) {
-+  if (status !== 'Ansluten') return 'Anslut ECU först. Inga felkoder från bilen har lästs ännu.'
-+  if (pending) return 'Läser felkoder från ECU:n. Ingen ändring görs i bilen.'
-+  if (!error) return 'Läsningen är klar. Ingen radering eller skrivning görs.'
-+  if (error === 'Inte läst ännu') return 'Tryck på Läs felkoder för en ny, säker avläsning.'
-+  if (error.toLowerCase().includes('timeout') || error.toLowerCase().includes('inget svar')) return 'ECU:n svarade inte på felkodsläsningen. Försök igen med tändningen i läge 2.'
-+  return 'Felkoder kunde inte läsas just nu. Kontrollera anslutningen och försök igen.'
-+}
- 
- function tempTone(value: number | null | undefined) {
-   if (value == null) return '#eef3ea'
-@@ -37,28 +115,32 @@ function warningTone(value: number | null | undefined, warning: number, danger:
- 
- function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
-   if (value == null) return '#eef3ea'
--  if (value > 15 || (engineRunning && value < 13)) return '#f4544c'
--  if (engineRunning && value < 13.2) return '#f0c44f'
-+  if (engineRunning && (value < 11.7 || value > 14.7)) return '#f4544c'
-   return '#eef3ea'
- }
- 
--// Deliberately non-linear: the useful Td5 driving range gets more visual
--// resolution than the seldom-used upper end of the rev range.
--function rpmBarPercent(value: number | null | undefined) {
--  const rpm = Math.max(0, Number(value ?? 0))
--  const stops: Array<[number, number]> = [[0, 0], [740, 15], [1800, 36], [2500, 62], [2800, 70], [3000, 78], [3500, 88], [5000, 100]]
--  for (let index = 1; index < stops.length; index += 1) {
--    const [fromRpm, fromPercent] = stops[index - 1]
--    const [toRpm, toPercent] = stops[index]
--    if (rpm <= toRpm) return fromPercent + ((rpm - fromRpm) / (toRpm - fromRpm)) * (toPercent - fromPercent)
--  }
--  return 100
--}
--
  export function Td5Cockpit({ visible }: { visible: boolean }) {
 +  const settings = useLiviStore((state) => state.settings)
 +  const saveSettings = useLiviStore((state) => state.saveSettings)
    const [data, setData] = useState<Td5Live>(blank)
-+  const [history, setHistory] = useState<Td5History>(emptyHistory)
+   const [history, setHistory] = useState<Td5History>(emptyHistory)
    const [menu, setMenu] = useState(false)
--  const [view, setView] = useState<'home' | 'boost' | 'charging' | 'air' | 'injectors'>('home')
+-  const [menuLevel, setMenuLevel] = useState<'main' | 'service'>('main')
 +  const [menuLevel, setMenuLevel] = useState<'main' | 'service' | 'brightness'>('main')
 +  const configuredBrightness = Math.max(15, Math.min(100, settings?.displayBrightness ?? 100))
 +  const [brightness, setBrightness] = useState(configuredBrightness)
-+  const [view, setView] = useState<Td5View>('home')
-+  const [dtcReadBusy, setDtcReadBusy] = useState(false)
-+  const [identityReadBusy, setIdentityReadBusy] = useState(false)
-+  const [absReadBusy, setAbsReadBusy] = useState(false)
+   const [view, setView] = useState<Td5View>('home')
+   const [dtcReadBusy, setDtcReadBusy] = useState(false)
+   const [identityReadBusy, setIdentityReadBusy] = useState(false)
+   const [absReadBusy, setAbsReadBusy] = useState(false)
 +  const [confirmPowerOff, setConfirmPowerOff] = useState(false)
 +  const [poweringOff, setPoweringOff] = useState(false)
 +  const [powerOffFailed, setPowerOffFailed] = useState(false)
 +
 +  useEffect(() => setBrightness(configuredBrightness), [configuredBrightness])
++
++  useEffect(() => {
++    document.documentElement.style.setProperty('--livi-display-dim', String(1 - brightness / 100))
++  }, [brightness])
 +
 +  const persistBrightness = () => {
 +    if (brightness !== configuredBrightness) void saveSettings({ displayBrightness: brightness })
@@ -1130,93 +678,10 @@ index 2304492..735115a 100644
  
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +162,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -254,6 +271,17 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+       window.setTimeout(() => setAbsReadBusy(false), 30000)
      }
-   }, [visible])
- 
-+  useEffect(() => {
-+    if (!visible) return
-+    let alive = true
-+    const readHistory = async () => {
-+      try {
-+        const response = await fetch('http://127.0.0.1:8080/api/history', { cache: 'no-store' })
-+        if (!response.ok) throw new Error(String(response.status))
-+        if (alive) setHistory(await response.json())
-+      } catch {
-+        // History is supplementary and must never interrupt the live dashboard.
-+      }
-+    }
-+    void readHistory()
-+    const timer = window.setInterval(() => void readHistory(), 3000)
-+    return () => {
-+      alive = false
-+      window.clearInterval(timer)
-+    }
-+  }, [visible])
-+
-   const displayData = data
-   const coolantTone = tempTone(displayData.coolant_c)
--  const rpmBar = rpmBarPercent(displayData.rpm)
-+  const coolantTextTone = coolantTone === '#b8d699' ? '#eef3ea' : coolantTone
-   const coolantCritical = Number(displayData.coolant_c ?? 0) >= 105
-   const engineRunning = Number(displayData.rpm ?? 0) > 300
-   const connectionProblem = /fel|error|frånkopplad/i.test(data.status ?? '')
--  const connectionTone = data.status === 'Ansluten' ? '#eef3ea' : connectionProblem ? '#f4544c' : '#f0c44f'
-+  const connectionTone = data.status === 'Ansluten' ? '#eef3ea' : '#f0c44f'
-+  const boostKpa = data.map_kpa != null && data.aap_kpa != null ? data.map_kpa - data.aap_kpa : null
-+  const consumptionValue = data.consumption?.l_per_100km ?? data.consumption?.provisional_l_per_100km
-+  const consumptionPerMil = consumptionValue == null ? null : consumptionValue / 10
-+  const consumptionUnit = data.consumption?.l_per_100km != null
-+    ? 'l/mil · SENASTE 10 MIL'
-+    : data.consumption?.provisional_l_per_100km != null
-+      ? `l/mil · ${text(data.consumption.distance_km, 1)} / ${text(data.consumption.target_km, 0)} km`
-+      : `SAMLAR · ${text(data.consumption?.distance_km, 0)} / ${text(data.consumption?.target_km, 0)} km`
- 
-   useEffect(() => {
-     if (!visible || !coolantCritical) return
-@@ -119,15 +229,94 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
-   }, [visible, coolantCritical])
- 
-   if (!visible) return null
--  const openView = (next: typeof view) => {
-+  const openView = (next: Td5View) => {
-     setView(next)
-     setMenu(false)
-+    setMenuLevel('main')
-+  }
-+  const requestDtcRead = async () => {
-+    if (dtcReadBusy || data.status !== 'Ansluten') return
-+    setDtcReadBusy(true)
-+    try {
-+      await fetch('http://127.0.0.1:8080/api/dtc/read', { method: 'POST', cache: 'no-store' })
-+    } catch {
-+      // The ECU result shown below remains read-only even if this request fails.
-+    } finally {
-+      window.setTimeout(() => setDtcReadBusy(false), 1200)
-+    }
-+  }
-+  const requestIdentityRead = async () => {
-+    if (identityReadBusy || data.status !== 'Ansluten') return
-+    setIdentityReadBusy(true)
-+    try {
-+      await fetch('http://127.0.0.1:8080/api/feature-config/read', { method: 'POST', cache: 'no-store' })
-+    } catch {
-+      // The UI remains read-only even if the ECU does not answer this optional request.
-+    } finally {
-+      window.setTimeout(() => setIdentityReadBusy(false), 1200)
-+    }
-+  }
-+  const requestAbsDtcRead = async () => {
-+    if (absReadBusy || data.status !== 'Ansluten' || data.abs?.stationary === false) return
-+    setAbsReadBusy(true)
-+    try {
-+      await fetch('http://127.0.0.1:8080/api/abs/faults/read', { method: 'POST', cache: 'no-store' })
-+    } catch {
-+      // The current status and the result/error are shown by the read-only API.
-+    } finally {
-+      window.setTimeout(() => setAbsReadBusy(false), 30000)
-+    }
-+  }
+   }
 +  const requestPowerOff = async () => {
 +    if (poweringOff) return
 +    setPowerOffFailed(false)
@@ -1227,73 +692,22 @@ index 2304492..735115a 100644
 +      setPoweringOff(false)
 +      setPowerOffFailed(true)
 +    }
-   }
++  }
    const metric = (label: string, value: string, unit: string, tone = '#eef3ea') => (
--    <article key={label} style={{ minWidth: 0, padding: '17px 18px', border: `1px solid ${tone === '#eef3ea' ? '#ffffff18' : `${tone}88`}`, borderRadius: 17, background: '#101412', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
--      <div style={{ color: '#c9d0c8', fontSize: 15, fontWeight: 700, letterSpacing: '.11em' }}>{label}</div>
-+    <article key={label} style={{ minWidth: 0, padding: '18px 20px', border: `1px solid ${tone === '#eef3ea' ? '#ffffff18' : `${tone}88`}`, borderRadius: 17, background: '#101412', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-+      <div style={{ color: '#c9d0c8', fontSize: 21, fontWeight: 700, letterSpacing: '.065em' }}>{label}</div>
-       <div style={{ marginTop: 10, color: tone, fontSize: 54, fontWeight: 700, letterSpacing: '-.07em', lineHeight: .85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
--      <div style={{ marginTop: 8, color: '#aeb7ae', fontSize: 13, fontWeight: 700, letterSpacing: '.08em' }}>{unit}</div>
-+      <div style={{ marginTop: 8, color: '#aeb7ae', fontSize: 18, fontWeight: 700, letterSpacing: '.045em' }}>{unit}</div>
-+    </article>
-+  )
-+  const serviceCard = (label: string, value: string, detail: string, tone = '#eef3ea') => (
-+    <article key={label} style={{ minWidth: 0, padding: '18px 20px', border: `1px solid ${tone === '#eef3ea' ? '#ffffff18' : `${tone}88`}`, borderRadius: 17, background: '#101412', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-+      <div style={{ color: '#c9d0c8', fontSize: 19, fontWeight: 700, letterSpacing: '.06em' }}>{label}</div>
-+      <div style={{ marginTop: 12, color: tone, fontSize: 34, fontWeight: 700, lineHeight: .95, letterSpacing: '-.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
-+      <div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 16, lineHeight: 1.2 }}>{detail}</div>
-+    </article>
-+  )
-+  const samples = history.samples.slice(-120)
-+  const injectorAverages = Array.from({ length: 5 }, (_, index) => {
-+    const values = history.samples
-+      .map((sample) => sample.injector_balance?.[index])
-+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : data.injector_balance?.[index] ?? null
-+  })
-+  const hasInjectorHistory = history.samples.some((sample) => Array.isArray(sample.injector_balance))
-+  const alerts = [...(data.session?.alerts?.active ?? []), ...(data.session?.alerts?.history ?? [])]
-+  const faultSummary = data.dtc?.codes?.length
-+    ? data.dtc.codes.map((fault) => `${fault.state === 'AKTIV' ? 'AKTIV' : 'LAGRAD'} FELKOD ${fault.code ?? '—'} · ${fault.description ?? 'Okänd Td5-funktion'}`).join('\n')
-+    : data.dtc?.pending && data.status === 'Ansluten' ? 'LÄSER FELKODER…' : 'INGA FELKODER LÄSTA ÄNNU'
-+  const hasActiveFault = Boolean(data.dtc?.codes?.some((fault) => fault.state === 'AKTIV'))
-+  const ecuConnectionMessage = connectionMessage(data.status, data.detail)
-+  const dtcMessage = faultReadMessage(data.status, data.dtc?.pending, data.dtc?.error)
-+  const menuCard = (key: Td5View, label: string, description: string, compact = false) => (
-+    <button key={key} type="button" onClick={() => openView(key)} style={{ minHeight: compact ? 74 : 108, padding: compact ? '13px 16px' : '18px 20px', border: key === view ? '2px solid #b8d699' : '1px solid #ffffff18', borderRadius: 18, background: '#202721', color: '#eef3ea', textAlign: 'left' }}>
-+      <b style={{ display: 'block', fontSize: compact ? 19 : 23, letterSpacing: '.03em' }}>{label}</b>
-+      <small style={{ display: 'block', marginTop: compact ? 5 : 8, color: '#b8c2b7', fontSize: compact ? 14 : 17, lineHeight: 1.15 }}>{description}</small>
-+    </button>
-+  )
-+  const trend = (label: string, values: Array<number | null | undefined>, color: string, latest: string) => (
-+    <article key={label} style={{ minWidth: 0, padding: '16px 18px', border: '1px solid #ffffff18', borderRadius: 16, background: '#101412' }}>
-+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#dce3da', fontSize: 18, letterSpacing: '.05em' }}><b>{label}</b><b style={{ color }}>{latest}</b></div>
-+      <svg viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: '100%', height: 42, marginTop: 9, overflow: 'visible' }}><polyline fill="none" stroke={color} strokeWidth="2.5" points={linePoints(values)} /></svg>
-     </article>
-   )
- 
-@@ -141,53 +330,156 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+     <article key={label} style={{ minWidth: 0, padding: '18px 20px', border: `1px solid ${tone === '#eef3ea' ? '#ffffff18' : `${tone}88`}`, borderRadius: 17, background: '#101412', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+       <div style={{ color: '#c9d0c8', fontSize: 21, fontWeight: 700, letterSpacing: '.065em' }}>{label}</div>
+@@ -306,7 +334,7 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
          fontFamily: 'Td5 Manrope, Arial, Helvetica, sans-serif', fontStyle: 'normal', fontWeight: 700, fontVariantNumeric: 'tabular-nums'
        }}
      >
 -      <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
--      <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 58, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
 +      <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}@keyframes td5-power-spin{to{transform:rotate(360deg)}}`}</style>
-+      <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 1000, pointerEvents: 'none', background: '#000', opacity: 1 - brightness / 100 }} />
-+      <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
+       <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
          <div style={{ display: 'grid', gap: 7 }}>
            <button
-             type="button" aria-label="Gå till Td5-hemsidan" onClick={() => openView('home')}
--            style={{ width: 58, height: 44, border: '1px solid #ffffff22', borderRadius: 12, background: view === 'home' ? '#b8d69922' : '#ffffff0c', color: '#b8d699', display: 'grid', placeItems: 'center' }}
--          ><svg aria-hidden="true" width="31" height="31" viewBox="0 0 24 24" fill="currentColor"><path d="M3 10.8 12 3l9 7.8v9.7a.5.5 0 0 1-.5.5h-5.2v-6.2H8.7V21H3.5a.5.5 0 0 1-.5-.5z" /></svg></button>
-+            style={{ width: 80, height: 70, border: '1px solid #ffffff22', borderRadius: 18, background: '#ffffff0c', color: '#eef3ea', display: 'grid', placeItems: 'center' }}
-+          ><svg aria-hidden="true" width="42" height="42" viewBox="0 0 24 24" fill="currentColor"><path d="M3 10.8 12 3l9 7.8v9.7a.5.5 0 0 1-.5.5h-5.2v-6.2H8.7V21H3.5a.5.5 0 0 1-.5-.5z" /></svg></button>
-           <button
--            type="button" aria-label="Öppna Td5-meny" onClick={() => setMenu((open) => !open)}
--            style={{ width: 58, height: 44, border: '1px solid #ffffff22', borderRadius: 12, background: '#ffffff0c', color: '#eef3ea', fontSize: 27 }}
-+            type="button" aria-label="Öppna Td5-meny" onClick={() => setMenu((open) => { const next = !open; if (next) setMenuLevel('main'); return next })}
-+            style={{ width: 80, height: 70, border: '1px solid #ffffff22', borderRadius: 18, background: '#ffffff0c', color: '#eef3ea', fontSize: 42 }}
+@@ -317,6 +345,10 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+             type="button" aria-label="Öppna Td5-meny" onClick={() => setMenu((open) => { const next = !open; if (next) setMenuLevel('main'); return next })}
+             style={{ width: 80, height: 70, border: '1px solid #ffffff22', borderRadius: 18, background: '#ffffff0c', color: '#eef3ea', fontSize: 42 }}
            >☰</button>
 +          <button
 +            type="button" aria-label="Stäng av systemet" onClick={() => setConfirmPowerOff(true)}
@@ -1301,113 +715,35 @@ index 2304492..735115a 100644
 +          ><svg aria-hidden="true" width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 2v10" /><path d="M6.35 5.65a8 8 0 1 0 11.3 0" /></svg></button>
          </div>
        </header>
--      {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 80, minHeight: 42, padding: '10px 16px', borderRadius: 13, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 15, fontWeight: 800, letterSpacing: '.06em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
--      {view === 'home' ? <main style={{ marginTop: coolantCritical ? 52 : 0, marginLeft: 68, display: 'grid', gridTemplateColumns: 'minmax(0,3fr) minmax(0,2fr)', gap: 10, minHeight: 0 }}>
--        <article style={{ order: 2, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: `2px solid ${coolantTone}33`, borderRadius: 17, background: '#101412' }}>
--          <div style={{ color: '#c9d0c8', fontSize: 14, fontWeight: 700, letterSpacing: '.09em', whiteSpace: 'nowrap' }}>COOLANT · °C</div>
--          <div style={{ marginTop: 18, color: coolantTone, fontSize: 144, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.coolant_c)}</div>
--          <div style={{ position: 'absolute', right: 20, bottom: 15, left: 20, height: 10, borderRadius: 8, background: 'linear-gradient(90deg,#b8d699 0 52%,#f0c44f 52% 75%,#e9574e 75%)' }} />
--        </article>
--        <article style={{ order: 1, position: 'relative', overflow: 'hidden', padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}>
--          <div style={{ color: '#c9d0c8', fontSize: 16, fontWeight: 700, letterSpacing: '.10em', whiteSpace: 'nowrap' }}>ENGINE SPEED · RPM</div>
-+      {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 102, minHeight: 50, padding: '12px 18px', borderRadius: 14, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 21, fontWeight: 800, letterSpacing: '.025em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
-+      {view === 'home' ? <main style={{ marginTop: coolantCritical ? 60 : 0, marginLeft: 90, display: 'grid', gridTemplateColumns: 'minmax(0,3fr) minmax(0,2fr)', gap: 10, minHeight: 0 }}>
-+        <article style={{ position: 'relative', overflow: 'hidden', padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}>
-+          <div style={{ color: '#c9d0c8', fontSize: 24, fontWeight: 700, letterSpacing: '.035em', whiteSpace: 'nowrap' }}>ENGINE SPEED</div>
-           <div style={{ marginTop: 18, fontSize: 144, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.rpm)}</div>
--          <div style={{ position: 'absolute', right: 20, bottom: 15, left: 20, height: 10, overflow: 'visible', borderRadius: 8, background: 'linear-gradient(90deg,#b8c0ba 0 88%,#f4544c 88% 100%)' }}><i style={{ position: 'absolute', top: -4, left: `${rpmBar}%`, width: 5, height: 18, borderRadius: 4, background: '#f4f7f0', boxShadow: '0 0 9px #f4f7f099', transform: 'translateX(-50%)', transition: 'left .22s ease-out' }} /></div>
-+          <div style={{ position: 'absolute', right: 20, bottom: 20, left: 20, color: '#aeb7ae', fontSize: 18, fontWeight: 700, letterSpacing: '.045em' }}>RPM</div>
-         </article>
--      </main> : <main style={{ marginTop: coolantCritical ? 52 : 0, marginLeft: 68, display: 'grid', gridTemplateColumns: view === 'injectors' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gridTemplateRows: view === 'injectors' ? 'repeat(2,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gap: 10, minHeight: 0 }}>
--        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(data.boost_kpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
-+        <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 2.25fr) minmax(112px, 1fr)', gap: 10, minHeight: 0 }}>
-+          <article style={{ position: 'relative', overflow: 'hidden', padding: '18px 20px', border: `2px solid ${coolantTone}33`, borderRadius: 17, background: '#101412' }}>
-+            <div style={{ color: coolantTextTone, fontSize: 22, fontWeight: 700, letterSpacing: '.045em', whiteSpace: 'nowrap' }}>COOLANT</div>
-+            <div style={{ marginTop: 18, color: coolantTextTone, fontSize: 116, fontWeight: 700, lineHeight: '.66', letterSpacing: '-.09em' }}>{text(displayData.coolant_c)}</div>
-+            <div style={{ position: 'absolute', right: 20, bottom: 18, left: 20, color: coolantTextTone, fontSize: 18, fontWeight: 700, letterSpacing: '.045em' }}>°C</div>
-+          </article>
-+          <article style={{ minWidth: 0, padding: '14px 18px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-+            <div style={{ color: '#c9d0c8', fontSize: 17, fontWeight: 700, letterSpacing: '.055em' }}>SNITTFÖRBRUKNING</div>
-+            <div style={{ marginTop: 6, color: '#eef3ea', fontSize: 48, fontWeight: 700, letterSpacing: '-.07em', lineHeight: '.84' }}>{consumptionPerMil != null ? text(consumptionPerMil, 2) : '—'}</div>
-+            <div style={{ marginTop: 6, color: '#aeb7ae', fontSize: 14, fontWeight: 700, letterSpacing: '.03em' }}>{consumptionUnit}</div>
-+          </article>
-+        </div>
-+      </main> : <main
-+        style={{
-+          marginTop: coolantCritical ? 60 : 0,
-+          marginLeft: 90,
-+          display: 'grid',
-+          gridTemplateColumns: view === 'injectors' || view === 'injectorTrend' ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
-+          // Fuel/pedal uses fewer, taller rows than a dense diagnostic table.
-+          // This keeps the actual numbers readable on the 747×440 Td5 pane.
-+          gridTemplateRows: view === 'ecu' ? 'auto auto' : view === 'fuel' ? 'repeat(5,minmax(190px,1fr))' : 'repeat(2,minmax(0,1fr))',
-+          gap: 10,
-+          minHeight: 0,
-+          overflowX: 'hidden',
-+          overflowY: view === 'ecu' || view === 'fuel' ? 'auto' : 'hidden',
-+          paddingRight: view === 'ecu' || view === 'fuel' ? 6 : 0,
-+          touchAction: view === 'ecu' || view === 'fuel' ? 'pan-y' : 'auto',
-+        }}
-+      >
-+        {view === 'boost' && <>{metric('ENGINE SPEED', text(data.rpm), 'RPM')}{metric('LADDTRYCK', text(boostKpa), 'kPa · BERÄKNAT', warningTone(data.map_kpa, 230, 240))}{metric('WASTEGATE', text(data.wastegate_percent), '%')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}</>}
-         {view === 'charging' && <>{metric('ALTERNATOR', text(data.voltage_v, 1), 'V', alternatorTone(data.voltage_v, engineRunning))}{metric('FUEL TEMP', text(data.fuel_c), '°C', warningTone(data.fuel_c, 75, 85))}</>}
-         {view === 'air' && <>{metric('INLET AIR', text(data.air_c), '°C', warningTone(data.air_c, 65, 80))}{metric('MAF', text(data.maf_kg_h), 'kg/h')}{metric('MAP · ABSOLUT', text(data.map_kpa), 'kPa', warningTone(data.map_kpa, 230, 240))}</>}
--        {view === 'injectors' && Array.from({ length: 5 }, (_, index) => metric(`INJ ${index + 1}`, text(data.injector_balance?.[index]), 'ECU RAW'))}
-+        {view === 'fuel' && <>{metric('SNITT · 10 MIL', consumptionPerMil != null ? text(consumptionPerMil, 2) : '—', data.consumption?.l_per_100km != null ? 'l/mil · KLAR' : data.consumption?.provisional_l_per_100km != null ? `l/mil · ${text(data.consumption.distance_km, 1)} km HITTILLS` : 'SAMLAR KÖRDATA')}{metric('LITER PER TIMME', text(data.consumption?.current_lph, 1), 'l/h · BERÄKNAT')}{metric('FUEL INJECTED', text(data.fuel_injected_mg, 2), 'mg/slag · ECU')}{metric('IDLE FUEL', text(data.idle_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('FUEL DEMAND', text(data.driver_fuel_demand_mg, 2), 'mg/slag · ECU')}{metric('THROTTLE 1', text(data.throttle_1, 2), 'V')}{metric('THROTTLE 2', text(data.throttle_2, 2), 'V')}{metric('THROTTLE 3', text(data.throttle_3, 2), 'V')}{metric('THROTTLE SUPPLY', text(data.throttle_supply_v, 2), 'V')}</>}
-+        {view === 'injectors' && Array.from({ length: 5 }, (_, index) => metric(`INJ ${index + 1}`, text(injectorAverages[index], 1), hasInjectorHistory ? 'SNITT · SESSION' : 'LIVE · VÄNTAR PÅ SNITT'))}
-+        {view === 'trends' && <>{serviceCard('MAX COOLANT', text(data.session?.peaks?.coolant_c), '°C · DENNA KÖRNING', tempTone(data.session?.peaks?.coolant_c))}{serviceCard('MAX LADDTRYCK', text(data.session?.peaks?.boost_kpa), 'kPa · BERÄKNAT')}{serviceCard('MAX VARVTAL', text(data.session?.peaks?.rpm), 'RPM · DENNA KÖRNING')}{serviceCard('LADDSPÄNNING', data.session?.voltage_range?.[0] != null ? `${text(data.session.voltage_range[0], 1)}–${text(data.session.voltage_range[1], 1)}` : '—', 'V · LÄGSTA–HÖGSTA')}</>}
-+        {view === 'history' && <>{serviceCard('KÖRTID', duration(data.session?.duration_s), 'DEN HÄR SESSIONEN')}{serviceCard('HISTORIK', String(history.samples.length), `AV MAX ${history.max_samples ?? 720} MÄTPUNKTER`)}{serviceCard('KÖRLOGG', data.session?.log_active ? 'AKTIV' : 'VÄNTAR', 'LOKAL · BEGRÄNSAD LAGRING')}{serviceCard('LARMHISTORIK', alerts.length ? `${alerts.length} HÄNDELSE${alerts.length === 1 ? '' : 'R'}` : 'INGA LARM', alerts.length ? alerts.slice(0, 2).map((alert) => `${alert.name} ${text(alert.value, 1)} ${alert.unit}`).join(' · ') : 'INGA VARNINGAR I SESSIONEN')}</>}
-+        {view === 'ecu' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-ANSLUTNING</div><div style={{ marginTop: 10, color: connectionTone, fontSize: 32, fontWeight: 700 }}>{data.status?.toUpperCase() ?? '—'}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16 }}>{ecuConnectionMessage}</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FELKODER · ENDAST LÄSNING</div><div style={{ marginTop: 9, color: data.dtc?.codes?.length ? (hasActiveFault ? '#f4544c' : '#f0c44f') : '#eef3ea', fontSize: 22, lineHeight: 1.15, whiteSpace: 'pre-line' }}>{faultSummary}</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 15 }}>{dtcMessage}</div><button type="button" disabled={data.status !== 'Ansluten' || dtcReadBusy} onClick={() => void requestDtcRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{dtcReadBusy ? 'LÄSER…' : 'LÄS FELKODER'}</button></article></>}
-+        {view === 'ecuIdentity' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-IDENTITET · DIAGNOSTIKPROFIL</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 32, fontWeight: 700 }}>{data.ecu_variant ? `${data.ecu_variant} ECU` : 'IDENTIFIERAS…'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.ecu_variant === 'NNN' ? 'NNN-profil bekräftad av pedalram med tre spår och 5 V-referens.' : data.ecu_variant === 'MSB' ? 'MSB-profil bekräftad av den korta pedalramen.' : 'Väntar på ett komplett pedalsvar från ECU:n.'}</div><div style={{ marginTop: 8, color: '#899088', fontSize: 15, lineHeight: 1.3 }}>Detta identifierar diagnosfamiljen, inte ett verifierat reservdels- eller serienummer.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ECU-KONFIGURATION · 21 3D</div><div style={{ marginTop: 10, color: data.feature_configuration?.raw ? '#eef3ea' : '#f0c44f', fontSize: 19, fontWeight: 700, lineHeight: 1.25, overflowWrap: 'anywhere' }}>{data.feature_configuration?.raw || (data.feature_configuration?.pending ? 'LÄSER KONFIGURATION…' : 'INTE LÄST ÄNNU')}</div><div style={{ marginTop: 9, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>Rått, skrivskyddat konfigurationsblock. Det används inte som injektorkod eller serienummer.</div><button type="button" disabled={data.status !== 'Ansluten' || identityReadBusy} onClick={() => void requestIdentityRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{identityReadBusy ? 'LÄSER…' : 'LÄS ECU-KONFIGURATION'}</button></article></>}
-+        {view === 'abs' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>ABS · WABCO D · ENDAST LÄSNING</div><div style={{ marginTop: 10, color: data.abs?.engine_kline_ready ? '#eef3ea' : '#f0c44f', fontSize: 29, fontWeight: 700 }}>{data.abs?.state?.toUpperCase() ?? 'VÄNTAR PÅ STATUS'}</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>{data.abs?.detail ?? 'ABS-information är inte tillgänglig ännu.'}</div><button type="button" disabled={data.status !== 'Ansluten' || data.abs?.stationary === false || absReadBusy || data.abs?.fault_memory?.pending} onClick={() => void requestAbsDtcRead()} style={{ marginTop: 13, minHeight: 54, padding: '0 20px', border: 0, borderRadius: 14, background: data.status === 'Ansluten' && data.abs?.stationary !== false ? '#b8d699' : '#ffffff18', color: data.status === 'Ansluten' && data.abs?.stationary !== false ? '#172016' : '#899088', fontSize: 18, fontWeight: 800, letterSpacing: '.05em' }}>{absReadBusy || data.abs?.fault_memory?.pending ? 'LÄSER ABS-FELKODER…' : 'LÄS ABS-FELKODER'}</button><div style={{ marginTop: 9, color: '#899088', fontSize: 15, lineHeight: 1.25 }}>Fordonet måste stå stilla. Td5 livevärden pausas kort under den säkra avläsningen.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>FELKODSMINNE</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 19, fontWeight: 700, lineHeight: 1.3, whiteSpace: 'pre-line' }}>{data.abs?.fault_memory?.pending ? 'VÄNTAR PÅ ABS-SVAR…' : data.abs?.fault_memory?.error ? `KUNDE INTE LÄSA · ${data.abs.fault_memory.error}` : data.abs?.fault_memory?.updated_at ? [`LAGRADE: ${data.abs.fault_memory.stored?.length ? data.abs.fault_memory.stored.map((fault) => `${fault.code} · ${fault.description}`).join('\n') : 'inga'}`, `AKTIVA: ${data.abs.fault_memory.current?.length ? data.abs.fault_memory.current.map((fault) => `${fault.code} · ${fault.description}`).join('\n') : 'inga'}`].join('\n\n') : 'INTE LÄST ÄNNU'}</div><div style={{ marginTop: 9, color: '#899088', fontSize: 15, lineHeight: 1.25 }}>Rensning, pump-/ventiltest och luftning är medvetet inte tillgängliga i denna vy.</div></article></>}
-+        {view === 'injectorId' && <><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>INJEKTOR-ID · ECU-KONFIGURATION</div><div style={{ marginTop: 10, color: '#f0c44f', fontSize: 28, fontWeight: 700 }}>INGEN VERIFIERAD LÄSMETOD ÄNNU</div><div style={{ marginTop: 10, color: '#b8c2b7', fontSize: 17, lineHeight: 1.3 }}>Td5:s funktionsblock 21 3D innehåller inte bekräftade injektorkoder. Femteckenskod och idle-nummer visas först när en separat, verifierad läsmetod har hittats.</div></article><article style={{ gridColumn: '1 / -1', minWidth: 0, padding: '18px 20px', border: '1px solid #ffffff18', borderRadius: 17, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>VAD SOM BEHÖVS</div><div style={{ marginTop: 10, color: '#eef3ea', fontSize: 23, fontWeight: 700 }}>EN SEPARAT, VALIDERAD SETTINGS-LÄSNING</div><div style={{ marginTop: 8, color: '#b8c2b7', fontSize: 16, lineHeight: 1.3 }}>Ingen inställning eller injektorkod kommer att skrivas från denna dashboard.</div></article></>}
-+        {view === 'turboHealth' && <article style={{ gridColumn: '1 / -1', gridRow: '1 / -1', minWidth: 0, padding: 12, border: '1px solid #ffffff18', borderRadius: 17, background: '#101412', display: 'grid', gap: 8, alignContent: 'center' }}><div style={{ padding: '2px 6px 5px', color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>TURBO HEALTH · SENASTE 2 MIN</div>{trend('MAP', samples.map((sample) => sample.map_kpa), '#f0c44f', `${text(data.map_kpa)} kPa`)}{trend('WASTEGATE', samples.map((sample) => sample.wastegate_percent), '#b8d699', `${text(data.wastegate_percent)} %`)}{trend('MAF', samples.map((sample) => sample.maf_kg_h), '#eef3ea', `${text(data.maf_kg_h)} kg/h`)}</article>}
-+        {view === 'injectorTrend' && Array.from({ length: 5 }, (_, index) => { const values = samples.map((sample) => sample.injector_balance?.[index]); return <article key={index} style={{ minWidth: 0, padding: '15px 16px', border: '1px solid #ffffff18', borderRadius: 16, background: '#101412' }}><div style={{ color: '#c9d0c8', fontSize: 19, letterSpacing: '.06em' }}>INJ {index + 1}</div><div style={{ marginTop: 8, fontSize: 38, fontWeight: 700 }}>{text(data.injector_balance?.[index])}</div><div style={{ marginTop: 6, color: '#aeb7ae', fontSize: 15 }}>ECU RAW · TREND</div><svg viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: '100%', height: 35, marginTop: 7 }}><polyline fill="none" stroke="#b8d699" strokeWidth="2.5" points={linePoints(values)} /></svg></article>})}
-       </main>}
--      <footer style={{ display: 'flex', alignItems: 'center', marginLeft: 68, color: connectionTone, fontSize: 13, fontWeight: 700, letterSpacing: '.055em' }}>
-+      <footer style={{ display: 'flex', alignItems: 'center', marginLeft: 90, color: connectionTone, fontSize: 19, fontWeight: 700, letterSpacing: '.015em' }}>
-         {data.status === 'Ansluten'
--          ? 'ECU ANSLUTEN · KABEL ANSLUTEN · LIVEVÄRDEN TAS EMOT'
-+          ? 'ECU ANSLUTEN · LIVEVÄRDEN TAS EMOT'
-           : connectionProblem
--            ? 'ECU FRÅNKOPPLAD · ANSLUT K+DCAN-KABEL OCH SLÅ PÅ TÄNDNINGEN'
-+            ? 'ECU FRÅNKOPPLAD · ANSLUT K+DCAN-KABELN'
-             : 'SÖKER ECU · ANSLUTNINGSFÖRSÖK PÅGÅR'}
-       </footer>
+       {coolantCritical && <div role="alert" style={{ position: 'absolute', zIndex: 5, top: 12, right: 12, left: 102, minHeight: 50, padding: '12px 18px', borderRadius: 14, background: '#d93630', color: '#fff', display: 'flex', alignItems: 'center', fontSize: 21, fontWeight: 800, letterSpacing: '.025em', animation: 'td5-critical-pulse 1s ease-in-out infinite' }}>KYLVÄTSKA KRITISK · STÄNG AV MOTORN GENAST</div>}
+@@ -379,9 +411,12 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
        {menu && (
--        <aside style={{ position: 'absolute', inset: 12, zIndex: 4, padding: 18, border: '1px solid #ffffff22', borderRadius: 18, background: '#151a17', boxShadow: '0 20px 60px #000d' }}>
--          <button type="button" onClick={() => setMenu(false)} style={{ float: 'right', width: 64, height: 56, border: 0, borderRadius: 14, background: '#ffffff12', color: '#fff', fontSize: 34 }}>×</button>
--          <h2 style={{ margin: '14px 0 18px', fontSize: 21, letterSpacing: '.09em' }}>TD5 MENY</h2>
--          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
--            {([['home', 'HEM', 'Coolant och motorvarvtal'], ['boost', 'TURBO & GAS', 'Laddtryck, wastegate och gas'], ['charging', 'LADDNING', 'Alternator och bränsletemperatur'], ['air', 'LUFT & MAP', 'Insugsluft, MAF och MAP'], ['injectors', 'INJEKTORER', 'Cylindrarnas balansvärden']] as const).map(([key, label, description]) => <button key={key} type="button" onClick={() => openView(key)} style={{ minHeight: 82, padding: '14px 16px', border: key === view ? '2px solid #b8d699' : '1px solid #ffffff18', borderRadius: 15, background: '#202721', color: '#eef3ea', textAlign: 'left' }}><b style={{ display: 'block', fontSize: 16, letterSpacing: '.08em' }}>{label}</b><small style={{ display: 'block', marginTop: 7, color: '#b8c2b7', fontSize: 12 }}>{description}</small></button>)}
--          </div>
-+        <aside style={{ position: 'absolute', inset: 12, zIndex: 4, padding: 18, paddingRight: 12, overflowX: 'hidden', overflowY: 'auto', touchAction: 'pan-y', border: '1px solid #ffffff22', borderRadius: 18, background: '#151a17', boxShadow: '0 20px 60px #000d' }}>
-+          <button type="button" onClick={() => { setMenu(false); setMenuLevel('main') }} style={{ float: 'right', width: 84, height: 74, border: 0, borderRadius: 18, background: '#ffffff12', color: '#fff', fontSize: 50 }}>×</button>
+         <aside style={{ position: 'absolute', inset: 12, zIndex: 4, padding: 18, paddingRight: 12, overflowX: 'hidden', overflowY: 'auto', touchAction: 'pan-y', border: '1px solid #ffffff22', borderRadius: 18, background: '#151a17', boxShadow: '0 20px 60px #000d' }}>
+           <button type="button" onClick={() => { setMenu(false); setMenuLevel('main') }} style={{ float: 'right', width: 84, height: 74, border: 0, borderRadius: 18, background: '#ffffff12', color: '#fff', fontSize: 50 }}>×</button>
+-          <h2 style={{ margin: '14px 0 20px', fontSize: 33, letterSpacing: '.04em' }}>{menuLevel === 'main' ? 'TD5 MENY' : 'SERVICE & DIAGNOSTIK'}</h2>
 +          <h2 style={{ margin: '14px 0 20px', fontSize: 33, letterSpacing: '.04em' }}>{menuLevel === 'main' ? 'TD5 MENY' : menuLevel === 'service' ? 'SERVICE & DIAGNOSTIK' : 'LJUSSTYRKA'}</h2>
-+          {menuLevel === 'main' ? <>
+           {menuLevel === 'main' ? <>
+-            <button type="button" onClick={() => setMenuLevel('service')} style={{ width: '100%', minHeight: 56, padding: '10px 18px', border: '1px solid #ffffff22', borderRadius: 16, background: '#ffffff0d', color: '#eef3ea', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left' }}><span style={{ fontSize: 21, fontWeight: 800, letterSpacing: '.03em' }}>SERVICE & DIAGNOSTIK</span><span style={{ color: '#b8c2b7', fontSize: 16 }}>FELKODER · TRENDER · LOGGAR&nbsp; ›</span></button>
 +            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 +              <button type="button" onClick={() => setMenuLevel('service')} style={{ minHeight: 72, padding: '10px 18px', border: '1px solid #ffffff22', borderRadius: 16, background: '#ffffff0d', color: '#eef3ea', textAlign: 'left' }}><span style={{ display: 'block', fontSize: 20, fontWeight: 800, letterSpacing: '.03em' }}>SERVICE & DIAGNOSTIK</span><span style={{ display: 'block', marginTop: 5, color: '#b8c2b7', fontSize: 14 }}>FELKODER · TRENDER&nbsp; ›</span></button>
 +              <button type="button" onClick={() => setMenuLevel('brightness')} style={{ minHeight: 72, padding: '10px 18px', border: '1px solid #f0c44f55', borderRadius: 16, background: '#f0c44f12', color: '#eef3ea', textAlign: 'left' }}><span style={{ display: 'block', fontSize: 20, fontWeight: 800, letterSpacing: '.03em' }}>☀ LJUSSTYRKA</span><span style={{ display: 'block', marginTop: 5, color: '#d7ca92', fontSize: 14 }}>{brightness} %&nbsp; ›</span></button>
 +            </div>
-+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-+              {menuCard('boost', 'TURBO & GAS', 'Laddtryck, wastegate och gas')}
-+              {menuCard('charging', 'LADDNING', 'Alternator och bränsletemperatur')}
-+              {menuCard('air', 'LUFT & MAP', 'Insugsluft, MAF och MAP')}
-+              {menuCard('fuel', 'BRÄNSLE & PEDAL', 'Förbrukning, insprutning och throttle')}
-+              {menuCard('injectors', 'INJEKTORER', 'Cylindrarnas balansvärden')}
-+            </div>
+             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+               {menuCard('boost', 'TURBO & GAS', 'Laddtryck, wastegate och gas')}
+               {menuCard('charging', 'LADDNING', 'Alternator och bränsletemperatur')}
+@@ -389,7 +424,7 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+               {menuCard('fuel', 'BRÄNSLE & PEDAL', 'Förbrukning, insprutning och throttle')}
+               {menuCard('injectors', 'INJEKTORER', 'Cylindrarnas balansvärden')}
+             </div>
+-          </> : <>
 +          </> : menuLevel === 'service' ? <>
-+            <button type="button" onClick={() => setMenuLevel('main')} style={{ minHeight: 42, marginBottom: 10, padding: '0 14px', border: 0, borderRadius: 13, background: '#ffffff12', color: '#eef3ea', fontSize: 17, fontWeight: 800, letterSpacing: '.04em' }}>‹ KÖRVYER</button>
-+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-+              {menuCard('ecu', 'ECU & FELKODER', 'Anslutning · endast läsning', true)}
-+              {menuCard('ecuIdentity', 'ECU-IDENTITET', 'Diagnostikprofil · konfiguration', true)}
-+              {menuCard('abs', 'ABS', 'Status · framtida service', true)}
-+              {menuCard('injectorId', 'INJEKTOR-ID', 'Koder · väntar på verifiering', true)}
-+              {menuCard('trends', 'TOPPVÄRDEN', 'Temperatur, laddtryck och RPM', true)}
-+              {menuCard('history', 'KÖRLOGG', 'Larmhistorik och session', true)}
-+              {menuCard('turboHealth', 'TURBO HEALTH', 'MAP, wastegate och MAF', true)}
-+              {menuCard('injectorTrend', 'INJEKTORTREND', 'Balans över tid', true)}
-+            </div>
+             <button type="button" onClick={() => setMenuLevel('main')} style={{ minHeight: 42, marginBottom: 10, padding: '0 14px', border: 0, borderRadius: 13, background: '#ffffff12', color: '#eef3ea', fontSize: 17, fontWeight: 800, letterSpacing: '.04em' }}>‹ KÖRVYER</button>
+             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+               {menuCard('ecu', 'ECU & FELKODER', 'Anslutning · endast läsning', true)}
+@@ -401,9 +436,53 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+               {menuCard('turboHealth', 'TURBO HEALTH', 'MAP, wastegate och MAF', true)}
+               {menuCard('injectorTrend', 'INJEKTORTREND', 'Balans över tid', true)}
+             </div>
 +          </> : <>
 +            <button type="button" onClick={() => { persistBrightness(); setMenuLevel('main') }} style={{ minHeight: 42, marginBottom: 18, padding: '0 14px', border: 0, borderRadius: 13, background: '#ffffff12', color: '#eef3ea', fontSize: 17, fontWeight: 800, letterSpacing: '.04em' }}>‹ TILLBAKA</button>
 +            <div style={{ padding: '26px 28px', border: '1px solid #ffffff22', borderRadius: 20, background: '#202721' }}>
@@ -1432,7 +768,7 @@ index 2304492..735115a 100644
 +              </div>
 +              <div style={{ marginTop: 22, color: '#b8c2b7', fontSize: 17, lineHeight: 1.35 }}>Inställningen sparas och används även efter omstart. Miniminivån är 15 % så att reglaget alltid går att hitta igen.</div>
 +            </div>
-+          </>}
+           </>}
          </aside>
        )}
 +      {confirmPowerOff && (
