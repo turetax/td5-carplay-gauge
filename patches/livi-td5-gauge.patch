@@ -502,6 +502,30 @@ index 896615e..e7f12c4 100644
    test('attach during stopped state is ignored', async () => {
      const svc = new USBService(projection)
      ;(svc as unknown as { stopped: boolean }).stopped = true
+diff --git a/src/main/shared/types/Config.ts b/src/main/shared/types/Config.ts
+index 87cd236..2ce6bbc 100644
+--- a/src/main/shared/types/Config.ts
++++ b/src/main/shared/types/Config.ts
+@@ -205,6 +205,7 @@ export type Config = {
+   displayMode: string
+ 
+   // Display calibration, applied as the Pi compositor output gamma LUT
++  displayBrightness: number
+   displayGamma: number
+   displayContrast: number
+   displayColorR: number
+diff --git a/src/main/shared/types/DefaultConfig.ts b/src/main/shared/types/DefaultConfig.ts
+index 123c808..763975b 100644
+--- a/src/main/shared/types/DefaultConfig.ts
++++ b/src/main/shared/types/DefaultConfig.ts
+@@ -63,6 +63,7 @@ export const DEFAULT_CONFIG: Config = {
+   timezone: '',
+   appearanceMode: 'auto',
+   displayMode: '',
++  displayBrightness: 100,
+   displayGamma: 1.0,
+   displayContrast: 1.0,
+   displayColorR: 1.0,
 diff --git a/src/main/window/createWindow.ts b/src/main/window/createWindow.ts
 index 2a53300..2d78a3e 100644
 --- a/src/main/window/createWindow.ts
@@ -951,10 +975,13 @@ index 906cabf..abbb47b 100644
        <div
          id="videoContainer"
 diff --git a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-index 2304492..250e8b9 100644
+index 2304492..735115a 100644
 --- a/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
 +++ b/src/renderer/src/components/pages/td5/Td5Cockpit.tsx
-@@ -3,22 +3,99 @@ import manropeFont from '../../../assets/Manrope-wght.ttf'
+@@ -1,24 +1,102 @@
+ import { useEffect, useState } from 'react'
++import { useLiviStore } from '../../../store/store'
+ import manropeFont from '../../../assets/Manrope-wght.ttf'
  
  type Td5Live = {
    status?: string
@@ -1054,7 +1081,7 @@ index 2304492..250e8b9 100644
  
  function tempTone(value: number | null | undefined) {
    if (value == null) return '#eef3ea'
-@@ -37,28 +114,22 @@ function warningTone(value: number | null | undefined, warning: number, danger:
+@@ -37,28 +115,32 @@ function warningTone(value: number | null | undefined, warning: number, danger:
  
  function alternatorTone(value: number | null | undefined, engineRunning: boolean) {
    if (value == null) return '#eef3ea'
@@ -1078,11 +1105,15 @@ index 2304492..250e8b9 100644
 -}
 -
  export function Td5Cockpit({ visible }: { visible: boolean }) {
++  const settings = useLiviStore((state) => state.settings)
++  const saveSettings = useLiviStore((state) => state.saveSettings)
    const [data, setData] = useState<Td5Live>(blank)
 +  const [history, setHistory] = useState<Td5History>(emptyHistory)
    const [menu, setMenu] = useState(false)
 -  const [view, setView] = useState<'home' | 'boost' | 'charging' | 'air' | 'injectors'>('home')
-+  const [menuLevel, setMenuLevel] = useState<'main' | 'service'>('main')
++  const [menuLevel, setMenuLevel] = useState<'main' | 'service' | 'brightness'>('main')
++  const configuredBrightness = Math.max(15, Math.min(100, settings?.displayBrightness ?? 100))
++  const [brightness, setBrightness] = useState(configuredBrightness)
 +  const [view, setView] = useState<Td5View>('home')
 +  const [dtcReadBusy, setDtcReadBusy] = useState(false)
 +  const [identityReadBusy, setIdentityReadBusy] = useState(false)
@@ -1090,10 +1121,16 @@ index 2304492..250e8b9 100644
 +  const [confirmPowerOff, setConfirmPowerOff] = useState(false)
 +  const [poweringOff, setPoweringOff] = useState(false)
 +  const [powerOffFailed, setPowerOffFailed] = useState(false)
++
++  useEffect(() => setBrightness(configuredBrightness), [configuredBrightness])
++
++  const persistBrightness = () => {
++    if (brightness !== configuredBrightness) void saveSettings({ displayBrightness: brightness })
++  }
  
    useEffect(() => {
      if (!visible) return
-@@ -80,13 +151,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -80,13 +162,41 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
      }
    }, [visible])
  
@@ -1137,7 +1174,7 @@ index 2304492..250e8b9 100644
  
    useEffect(() => {
      if (!visible || !coolantCritical) return
-@@ -119,15 +218,94 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -119,15 +229,94 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
    }, [visible, coolantCritical])
  
    if (!visible) return null
@@ -1236,13 +1273,14 @@ index 2304492..250e8b9 100644
      </article>
    )
  
-@@ -141,53 +319,128 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
+@@ -141,53 +330,156 @@ export function Td5Cockpit({ visible }: { visible: boolean }) {
          fontFamily: 'Td5 Manrope, Arial, Helvetica, sans-serif', fontStyle: 'normal', fontWeight: 700, fontVariantNumeric: 'tabular-nums'
        }}
      >
 -      <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}`}</style>
 -      <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 58, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
 +      <style>{`@font-face{font-family:'Td5 Manrope';src:url('${manropeFont}') format('truetype');font-weight:200 800;font-style:normal;font-display:swap;}@keyframes td5-critical-pulse{0%,100%{opacity:1;box-shadow:0 0 0 #d9363000}50%{opacity:.58;box-shadow:0 0 20px #ff4b42aa}}@keyframes td5-power-spin{to{transform:rotate(360deg)}}`}</style>
++      <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 1000, pointerEvents: 'none', background: '#000', opacity: 1 - brightness / 100 }} />
 +      <header style={{ position: 'absolute', zIndex: 3, top: 12, bottom: 60, left: 12, width: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
          <div style={{ display: 'grid', gap: 7 }}>
            <button
@@ -1345,9 +1383,12 @@ index 2304492..250e8b9 100644
 -          </div>
 +        <aside style={{ position: 'absolute', inset: 12, zIndex: 4, padding: 18, paddingRight: 12, overflowX: 'hidden', overflowY: 'auto', touchAction: 'pan-y', border: '1px solid #ffffff22', borderRadius: 18, background: '#151a17', boxShadow: '0 20px 60px #000d' }}>
 +          <button type="button" onClick={() => { setMenu(false); setMenuLevel('main') }} style={{ float: 'right', width: 84, height: 74, border: 0, borderRadius: 18, background: '#ffffff12', color: '#fff', fontSize: 50 }}>×</button>
-+          <h2 style={{ margin: '14px 0 20px', fontSize: 33, letterSpacing: '.04em' }}>{menuLevel === 'main' ? 'TD5 MENY' : 'SERVICE & DIAGNOSTIK'}</h2>
++          <h2 style={{ margin: '14px 0 20px', fontSize: 33, letterSpacing: '.04em' }}>{menuLevel === 'main' ? 'TD5 MENY' : menuLevel === 'service' ? 'SERVICE & DIAGNOSTIK' : 'LJUSSTYRKA'}</h2>
 +          {menuLevel === 'main' ? <>
-+            <button type="button" onClick={() => setMenuLevel('service')} style={{ width: '100%', minHeight: 56, padding: '10px 18px', border: '1px solid #ffffff22', borderRadius: 16, background: '#ffffff0d', color: '#eef3ea', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left' }}><span style={{ fontSize: 21, fontWeight: 800, letterSpacing: '.03em' }}>SERVICE & DIAGNOSTIK</span><span style={{ color: '#b8c2b7', fontSize: 16 }}>FELKODER · TRENDER · LOGGAR&nbsp; ›</span></button>
++            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
++              <button type="button" onClick={() => setMenuLevel('service')} style={{ minHeight: 72, padding: '10px 18px', border: '1px solid #ffffff22', borderRadius: 16, background: '#ffffff0d', color: '#eef3ea', textAlign: 'left' }}><span style={{ display: 'block', fontSize: 20, fontWeight: 800, letterSpacing: '.03em' }}>SERVICE & DIAGNOSTIK</span><span style={{ display: 'block', marginTop: 5, color: '#b8c2b7', fontSize: 14 }}>FELKODER · TRENDER&nbsp; ›</span></button>
++              <button type="button" onClick={() => setMenuLevel('brightness')} style={{ minHeight: 72, padding: '10px 18px', border: '1px solid #f0c44f55', borderRadius: 16, background: '#f0c44f12', color: '#eef3ea', textAlign: 'left' }}><span style={{ display: 'block', fontSize: 20, fontWeight: 800, letterSpacing: '.03em' }}>☀ LJUSSTYRKA</span><span style={{ display: 'block', marginTop: 5, color: '#d7ca92', fontSize: 14 }}>{brightness} %&nbsp; ›</span></button>
++            </div>
 +            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
 +              {menuCard('boost', 'TURBO & GAS', 'Laddtryck, wastegate och gas')}
 +              {menuCard('charging', 'LADDNING', 'Alternator och bränsletemperatur')}
@@ -1355,7 +1396,7 @@ index 2304492..250e8b9 100644
 +              {menuCard('fuel', 'BRÄNSLE & PEDAL', 'Förbrukning, insprutning och throttle')}
 +              {menuCard('injectors', 'INJEKTORER', 'Cylindrarnas balansvärden')}
 +            </div>
-+          </> : <>
++          </> : menuLevel === 'service' ? <>
 +            <button type="button" onClick={() => setMenuLevel('main')} style={{ minHeight: 42, marginBottom: 10, padding: '0 14px', border: 0, borderRadius: 13, background: '#ffffff12', color: '#eef3ea', fontSize: 17, fontWeight: 800, letterSpacing: '.04em' }}>‹ KÖRVYER</button>
 +            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
 +              {menuCard('ecu', 'ECU & FELKODER', 'Anslutning · endast läsning', true)}
@@ -1366,6 +1407,30 @@ index 2304492..250e8b9 100644
 +              {menuCard('history', 'KÖRLOGG', 'Larmhistorik och session', true)}
 +              {menuCard('turboHealth', 'TURBO HEALTH', 'MAP, wastegate och MAF', true)}
 +              {menuCard('injectorTrend', 'INJEKTORTREND', 'Balans över tid', true)}
++            </div>
++          </> : <>
++            <button type="button" onClick={() => { persistBrightness(); setMenuLevel('main') }} style={{ minHeight: 42, marginBottom: 18, padding: '0 14px', border: 0, borderRadius: 13, background: '#ffffff12', color: '#eef3ea', fontSize: 17, fontWeight: 800, letterSpacing: '.04em' }}>‹ TILLBAKA</button>
++            <div style={{ padding: '26px 28px', border: '1px solid #ffffff22', borderRadius: 20, background: '#202721' }}>
++              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 20 }}>
++                <span style={{ color: '#b8c2b7', fontSize: 20, fontWeight: 800, letterSpacing: '.05em' }}>SKÄRM</span>
++                <strong style={{ color: '#eef3ea', fontSize: 48 }}>{brightness} %</strong>
++              </div>
++              <input
++                aria-label="Skärmens ljusstyrka"
++                type="range"
++                min="15"
++                max="100"
++                step="1"
++                value={brightness}
++                onChange={(event) => setBrightness(Number(event.currentTarget.value))}
++                onPointerUp={persistBrightness}
++                onKeyUp={persistBrightness}
++                style={{ width: '100%', height: 64, marginTop: 18, accentColor: '#f0c44f', touchAction: 'none' }}
++              />
++              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#aeb7ae', fontSize: 17, fontWeight: 800 }}>
++                <span>NATT</span><span>DAG</span>
++              </div>
++              <div style={{ marginTop: 22, color: '#b8c2b7', fontSize: 17, lineHeight: 1.35 }}>Inställningen sparas och används även efter omstart. Miniminivån är 15 % så att reglaget alltid går att hitta igen.</div>
 +            </div>
 +          </>}
          </aside>
